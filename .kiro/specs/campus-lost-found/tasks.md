@@ -84,6 +84,14 @@ today; unchecked tasks are remaining work.
     display on failure/cancel.
   - _Requirements: 10 (1, 2, 7)_
 
+- [ ] 12c-1. Public landing page + signed-out routing (Requirement 10a)
+  - Add `LandingPage` component: brand wordmark, tagline, "how it works"
+    summary (log → verify → claim → release), and a "Get started" CTA.
+  - Add signed-out `authView` state (`"landing" | "login"`) to `App`; default to
+    landing, CTA opens `SignIn`, and `SignIn` has a back control to landing.
+  - Landing shown only when signed out; authenticated app renders directly.
+  - _Requirements: 10a (1, 2, 3, 4, 5, 6); 10 (1)_
+
 - [x] 12d. Replace the demo role selector in `Nav` with the account UI
   - Show signed-in user's avatar/name and a "Sign out" action; derive role from
     the account (default non-staff); retire Requirement 11's demo selector.
@@ -123,8 +131,10 @@ today; unchecked tasks are remaining work.
 
 - [ ] 12j. "Fill from caption" UI on `FinderForm`
   - Paste textarea + action; processing/disabled state; merges non-empty fields;
-    fields stay editable; no auto-submit; message when nothing extracted.
-  - _Requirements: 12 (1, 3, 4, 5, 6)_
+    fields stay editable; no auto-submit; message when nothing extracted. When
+    the caption yields no time found, default "When did you find it?" to now
+    (editable).
+  - _Requirements: 12 (1, 2a, 3, 4, 5, 6)_
 
 - [x] 12k. Deploy the function and set the key (out of band)
   - `supabase secrets set GEMINI_API_KEY=...` and
@@ -155,6 +165,20 @@ today; unchecked tasks are remaining work.
   - `CommentReply` type + `replies` on `ItemComment`; "Reply" action per comment
     reveals an input; replies render indented; count includes replies.
   - _Requirements: 5 (15, 16, 17)_
+
+- [ ] 13d-1. Modal comment panel (Facebook-style pop-up)
+  - Replace the inline slide-down thread with a `CommentModal`: centered dialog
+    over a dimmed backdrop, the full post rendered at the top, scrollable comment
+    tree, sticky bottom composer. Comment button becomes a trigger. Dismiss via
+    close button, backdrop click, and Escape.
+  - _Requirements: 5 (11)_
+
+- [ ] 13d-2. Branching (nested) replies
+  - Unify comments/replies into one recursive `CommentNode` (`replies:
+    CommentNode[]`). Recursive `CommentThread` render with per-node Reply input
+    and increasing indentation; immutable add-reply walks the tree by parent id;
+    count sums the whole tree.
+  - _Requirements: 5 (15, 16, 17, 18)_
 
 ## Phase 2.8 — Facebook-style reposts + My Timeline (Requirements 5, 5a)
 
@@ -193,6 +217,39 @@ today; unchecked tasks are remaining work.
   - `"profile"` view + "Profile" nav item; header (avatar/name/email/sign-out);
     user's posts + reposts; empty state.
   - _Requirements: 5b (1–5)_
+
+- [ ] 13l. Client-side persistence via `localStorage` (Requirement 14)
+  - `usePersistentState` hook: hydrate from `localStorage` on init (default on
+    missing/malformed JSON), write on change; versioned `foundit:v1:` keys.
+  - Persist `items`, `claims`, `notices`, `comments`, `reposts`, `upvotedIds`
+    (Set (de)serialized as array). Auth/session excluded.
+  - _Requirements: 14 (1–6)_
+
+## Phase 2.9 — Student verification (Requirement 15, AI-only)
+
+- [x] 16a. Client helper `src/lib/studentVerify.ts`
+  - `verifyStudent({imageBase64,mimeType,accountName,docType})` invokes the
+    `verify-student` Edge Function; decides verified only on pass + confidence
+    ≥ 0.75 + student doc + name match, else rejected; "unavailable" when Supabase
+    isn't configured (no fallback approval).
+  - _Requirements: 15 (2, 3, 4, 5, 7, 8)_
+
+- [x] 16b. `verify-student` Supabase Edge Function
+  - Gemini Vision reads the image; returns `{is_student_doc, doc_type,
+    extracted{...}, name_matches_account, confidence, ai_verdict}` with CORS;
+    key via `GEMINI_API_KEY`. Raw image not persisted.
+  - _Requirements: 15 (3, 8, 9)_
+
+- [x] 16c. App state + `VerificationBadge`
+  - Persistent `verifications` (`Record<userId, StudentVerification>`, no
+    "pending"); `verifiedIds` via `VerifiedContext`. `VerificationBadge` shown
+    next to names on posts, reposts, comments, and the comment modal's post.
+  - _Requirements: 15 (1, 6)_
+
+- [x] 16d. Profile "Get verified" UI
+  - Doc-type select + image upload; calls verifyStudent; shows verified /
+    rejected / unavailable messages. No staff queue.
+  - _Requirements: 15 (1, 2, 5, 6, 7)_
 
 ## Phase 3 — Supabase backend
 

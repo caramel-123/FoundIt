@@ -2,7 +2,62 @@ import { useState, useRef, useEffect } from "react";
 import type { ReactElement } from "react";
 import type { AuthState, AuthUser, Role } from "./lib/auth";
 import { getSession, signInWithGoogle, signOut, onAuthChange } from "./lib/auth";
+import { createContext, useContext } from "react";
 import { parseCaption } from "./lib/captionImport";
+import { verifyStudent } from "./lib/studentVerify";
+
+// ─── Client-side persistence (Requirement 14) ───────────────────────────────────
+//
+// Persists prototype state to localStorage under versioned `foundit:v1:` keys so
+// items/claims/notices/etc. survive a page reload, until the Supabase data layer
+// lands. Auth/session state is NOT persisted here — it stays owned by lib/auth.
+
+const STORAGE_PREFIX = "foundit:v1:";
+
+interface Serializer<T> {
+  serialize: (value: T) => unknown;
+  deserialize: (raw: unknown) => T;
+}
+
+function usePersistentState<T>(
+  key: string,
+  defaultValue: T,
+  serializer?: Serializer<T>,
+): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const storageKey = STORAGE_PREFIX + key;
+
+  const [value, setValue] = useState<T>(() => {
+    if (typeof window === "undefined") return defaultValue;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw == null) return defaultValue;
+      const parsed = JSON.parse(raw);
+      return serializer ? serializer.deserialize(parsed) : (parsed as T);
+    } catch {
+      // Malformed/unreadable data — fall back to the default without crashing.
+      return defaultValue;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const toStore = serializer ? serializer.serialize(value) : value;
+      window.localStorage.setItem(storageKey, JSON.stringify(toStore));
+    } catch {
+      // Ignore quota/serialization errors — persistence is best-effort here.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey, value]);
+
+  return [value, setValue];
+}
+
+// (De)serialize a Set as a plain array for JSON storage.
+const setSerializer: Serializer<Set<string>> = {
+  serialize: (s) => Array.from(s),
+  deserialize: (raw) => new Set(Array.isArray(raw) ? (raw as string[]) : []),
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -55,21 +110,36 @@ interface MissingNotice {
   created_at: string;
 }
 
-interface CommentReply {
+// A single recursive node type powers branching (nested) replies: every comment
+// and every reply can itself be replied to, at arbitrary depth.
+interface CommentNode {
   id: string;
   author_id: string;
   author_name: string;
   message: string;
   created_at: string;
+  replies: CommentNode[];
 }
 
-interface ItemComment {
-  id: string;
-  author_id: string;
-  author_name: string;
-  message: string;
-  created_at: string;
-  replies: CommentReply[];
+// Back-compat alias: the rest of the app refers to top-level nodes as ItemComment.
+type ItemComment = CommentNode;
+
+// ─── Student verification (Requirement 15) ──────────────────────────────────────
+
+type VerificationStatus = "unverified" | "verified" | "rejected"; // AI-only, no "pending"
+type DocType = "student_id" | "cor" | "class_schedule";
+
+interface StudentVerification {
+  user_id: string;
+  user_name: string;
+  status: VerificationStatus;
+  doc_type?: DocType;
+  extracted?: { name?: string; student_no?: string; school?: string; term_valid?: boolean };
+  confidence?: number; // 0..1
+  ai_verdict?: "pass" | "fail";
+  submitted_at?: string;
+  decided_at?: string;
+  decided_by?: "ai";
 }
 
 interface Repost {
@@ -125,6 +195,19 @@ function Avatar({ id, name: nameProp, size = 32 }: { id: string; name?: string; 
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+// Total number of nodes in a branching comment tree (comments + all nested replies).
+// Defensive against legacy/malformed persisted data where `replies` may be missing.
+function countCommentNodes(nodes: CommentNode[] | undefined): number {
+  if (!Array.isArray(nodes)) return 0;
+  return nodes.reduce((n, node) => n + 1 + countCommentNodes(node?.replies), 0);
+}
+// Current local date/time formatted for a <input type="datetime-local"> value
+// (YYYY-MM-DDTHH:mm, in the user's local timezone).
+function nowForDateTimeLocal() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -233,6 +316,30 @@ function StatusBadge({ status }: { status: ItemStatus }) {
   );
 }
 
+// "Verified student" badge — shown next to a verified user's name.
+function VerificationBadge({ size = 14 }: { size?: number }) {
+  return (
+    <span
+      className="inline-flex items-center justify-center shrink-0"
+      style={{ color: "#9A3F3F" }}
+      title="Verified student"
+      aria-label="Verified student"
+    >
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 1.5l2.6 1.9 3.2-.2 1 3.1 2.6 1.9-1 3.1 1 3.1-2.6 1.9-1 3.1-3.2-.2L12 22.5l-2.6-1.9-3.2.2-1-3.1L2.6 15.8l1-3.1-1-3.1 2.6-1.9 1-3.1 3.2.2z"/>
+        <path d="M10.6 15.2l-2.4-2.4 1.1-1.1 1.3 1.3 3.4-3.4 1.1 1.1z" fill="#FBF9D1"/>
+      </svg>
+    </span>
+  );
+}
+
+// Read-only context of verified student ids, so any component (item cards,
+// comment threads) can show the badge without prop-drilling.
+const VerifiedContext = createContext<Set<string>>(new Set());
+function useIsVerified(userId: string): boolean {
+  return useContext(VerifiedContext).has(userId);
+}
+
 function ClaimBadge({ status }: { status: ClaimStatus }) {
   const styles: Record<ClaimStatus, { bg: string; text: string; border: string }> = {
     pending_review: { bg: "#FDF3EC", text: "#7A3A1A", border: "#E8C4AD" },
@@ -254,6 +361,33 @@ function IconCamera() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
       <circle cx="12" cy="13" r="4"/>
+    </svg>
+  );
+}
+
+function IconArrowRight() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12h14"/>
+      <path d="m12 5 7 7-7 7"/>
+    </svg>
+  );
+}
+
+function IconArrowLeft() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M19 12H5"/>
+      <path d="m12 19-7-7 7-7"/>
+    </svg>
+  );
+}
+
+function IconSparkles() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2.5l1.6 4.4a4 4 0 0 0 2.4 2.4l4.4 1.6-4.4 1.6a4 4 0 0 0-2.4 2.4L12 19.3l-1.6-4.4a4 4 0 0 0-2.4-2.4L3.6 10.9l4.4-1.6a4 4 0 0 0 2.4-2.4z"/>
+      <path d="M5 3.5l.7 1.9a1.6 1.6 0 0 0 1 1l1.9.7-1.9.7a1.6 1.6 0 0 0-1 1L5 10.6l-.7-1.9a1.6 1.6 0 0 0-1-1L1.4 7l1.9-.7a1.6 1.6 0 0 0 1-1z"/>
     </svg>
   );
 }
@@ -425,30 +559,14 @@ function PostActions({
   onShare?: (item: Item) => Promise<boolean>;
   extra?: ReactElement | null;
 }) {
-  const [showComments, setShowComments] = useState(false);
-  const [commentDraft, setCommentDraft] = useState("");
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const [shareMsg, setShareMsg] = useState<string | null>(null);
-  const [replyingTo, setReplyingTo] = useState<string | null>(null);
-  const [replyDraft, setReplyDraft] = useState("");
-  const commentCount = comments.length + comments.reduce((n, c) => n + c.replies.length, 0);
+  const commentCount = countCommentNodes(comments);
 
   async function handleShareClick() {
     const ok = onShare ? await onShare(repostItem) : false;
     setShareMsg(ok ? "Link copied" : "Copy failed — try again");
     setTimeout(() => setShareMsg(null), 2000);
-  }
-  function submitComment(e: React.FormEvent) {
-    e.preventDefault();
-    if (!commentDraft.trim()) return;
-    onAddComment?.(postId, commentDraft);
-    setCommentDraft("");
-  }
-  function submitReply(e: React.FormEvent, commentId: string) {
-    e.preventDefault();
-    if (!replyDraft.trim()) return;
-    onAddReply?.(postId, commentId, replyDraft);
-    setReplyDraft("");
-    setReplyingTo(null);
   }
 
   return (
@@ -464,11 +582,11 @@ function PostActions({
         </button>
 
         <button
-          onClick={() => setShowComments(s => !s)}
+          onClick={() => setCommentsOpen(true)}
           className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
-          style={{ background: "#F5ECEC", color: showComments ? "#9A3F3F" : "#6B3A3A" }}
+          style={{ background: "#F5ECEC", color: "#6B3A3A" }}
           aria-label="Comments"
-          aria-expanded={showComments}
+          aria-haspopup="dialog"
         >
           <IconComment />
           <span>{commentCount}</span>
@@ -501,82 +619,187 @@ function PostActions({
         {extra}
       </div>
 
-      {showComments && (
-        <div className="pt-1" style={{ borderTop: "1px solid #C1856D" }}>
-          {comments.length === 0 ? (
-            <p className="text-xs py-2" style={{ color: "#9A7070" }}>No comments yet. Be the first to comment.</p>
-          ) : (
-            <div className="flex flex-col gap-2 py-2">
-              {comments.map(c => (
-                <div key={c.id} className="flex gap-2">
-                  <Avatar id={c.author_id} name={c.author_name} size={20} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{c.author_name}</span>
-                      <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(c.created_at)}</span>
-                    </div>
-                    <p className="text-sm leading-snug" style={{ color: "#2C1414" }}>{c.message}</p>
-                    <button
-                      type="button"
-                      onClick={() => { setReplyingTo(replyingTo === c.id ? null : c.id); setReplyDraft(""); }}
-                      className="text-xs font-medium mt-0.5 hover:underline"
-                      style={{ color: "#9A3F3F" }}
-                    >
-                      Reply
-                    </button>
-                    {c.replies.length > 0 && (
-                      <div className="flex flex-col gap-2 mt-2 pl-3" style={{ borderLeft: "2px solid #C1856D" }}>
-                        {c.replies.map(r => (
-                          <div key={r.id} className="flex gap-2">
-                            <Avatar id={r.author_id} name={r.author_name} size={18} />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{r.author_name}</span>
-                                <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(r.created_at)}</span>
-                              </div>
-                              <p className="text-sm leading-snug" style={{ color: "#2C1414" }}>{r.message}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {replyingTo === c.id && (
-                      <form onSubmit={e => submitReply(e, c.id)} className="flex items-center gap-2 mt-2">
-                        <input
-                          type="text"
-                          value={replyDraft}
-                          onChange={e => setReplyDraft(e.target.value)}
-                          placeholder={`Reply to ${c.author_name}…`}
-                          autoFocus
-                          className="flex-1 px-3 py-1.5 text-sm rounded-lg border focus:outline-none focus:ring-2"
-                          style={{ background: "#FBF9D1", borderColor: "#C1856D", color: "#2C1414" }}
-                        />
-                        <button type="submit" disabled={!replyDraft.trim()} className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
-                          Reply
-                        </button>
-                      </form>
-                    )}
-                  </div>
+      {commentsOpen && (
+        <CommentModal
+          item={repostItem}
+          comments={comments}
+          onClose={() => setCommentsOpen(false)}
+          onAddComment={msg => onAddComment?.(postId, msg)}
+          onAddReply={(commentId, msg) => onAddReply?.(postId, commentId, msg)}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Comment Modal (Facebook-style pop-up) ──────────────────────────────────────
+
+function CommentModal({ item, comments, onClose, onAddComment, onAddReply }: {
+  item: Item;
+  comments: ItemComment[];
+  onClose: () => void;
+  onAddComment: (message: string) => void;
+  onAddReply: (commentId: string, message: string) => void;
+}) {
+  const [commentDraft, setCommentDraft] = useState("");
+  const count = countCommentNodes(comments);
+
+  // Close on Escape.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function submitComment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!commentDraft.trim()) return;
+    onAddComment(commentDraft);
+    setCommentDraft("");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Comments">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div
+        className="relative w-full sm:max-w-lg max-h-[85vh] sm:max-h-[80vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-xl"
+        style={{ background: "#FBF9D1" }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: "1px solid #C1856D" }}>
+          <div className="min-w-0">
+            <h3 className="font-semibold text-sm truncate" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}'s post</h3>
+            <p className="text-xs truncate" style={{ color: "#9A7070" }}>{count} {count === 1 ? "comment" : "comments"}</p>
+          </div>
+          <button onClick={onClose} aria-label="Close comments" style={{ color: "#9A7070" }}>
+            <IconX />
+          </button>
+        </div>
+
+        {/* Scrollable: post first, then thread */}
+        <div className="flex-1 overflow-y-auto scroll-area px-4 py-3">
+          {/* The post itself */}
+          <div className="pb-3 mb-3" style={{ borderBottom: "1px solid #E6CFA9" }}>
+            <div className="flex items-center gap-2">
+              <Avatar id={item.finder_id} name={item.finder_name} size={32} />
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-semibold" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}</span>
+                  {useIsVerified(item.finder_id) && <VerificationBadge size={13} />}
+                  <StatusBadge status={item.status} />
                 </div>
+                <span className="text-xs" style={{ color: "#9A7070" }}>{postedLabel(item.created_at)}</span>
+              </div>
+            </div>
+            <h4 className="mt-2 font-semibold text-base" style={{ color: "#2C1414" }}>{item.title}</h4>
+            {item.description && <p className="mt-1 text-sm leading-relaxed" style={{ color: "#2C1414" }}>{item.description}</p>}
+            {item.image_url && (
+              <img src={item.image_url} alt={item.title} className="mt-3 w-full max-h-64 object-cover rounded-xl" />
+            )}
+            <div className="mt-2 flex flex-wrap gap-3">
+              {item.location_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconMapPin />{item.location_found}</span>}
+              {item.time_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconClock />{formatDate(item.time_found)}</span>}
+            </div>
+          </div>
+
+          {comments.length === 0 ? (
+            <p className="text-sm py-6 text-center" style={{ color: "#9A7070" }}>No comments yet. Be the first to comment.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {comments.map(c => (
+                <CommentThread key={c.id} node={c} depth={0} onAddReply={onAddReply} />
               ))}
             </div>
           )}
-          <form onSubmit={submitComment} className="flex items-center gap-2 pt-1">
+        </div>
+
+        {/* Sticky composer */}
+        <form onSubmit={submitComment} className="flex items-center gap-2 p-4" style={{ borderTop: "1px solid #C1856D" }}>
+          <input
+            type="text"
+            value={commentDraft}
+            onChange={e => setCommentDraft(e.target.value)}
+            placeholder="Write a comment…"
+            autoFocus
+            className="flex-1 px-4 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
+            style={{ background: "#FBF9D1", borderColor: "#C1856D", color: "#2C1414" }}
+          />
+          <button type="submit" disabled={!commentDraft.trim()} className="px-4 py-2 text-sm font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+            Post
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Recursive comment node: renders a comment/reply, its own Reply input, and its
+// children — enabling arbitrary-depth branching (a reply to a reply to a reply…).
+function CommentThread({ node, depth, onAddReply }: {
+  node: CommentNode;
+  depth: number;
+  onAddReply: (parentId: string, message: string) => void;
+}) {
+  const [replying, setReplying] = useState(false);
+  const [draft, setDraft] = useState("");
+  const avatarSize = depth === 0 ? 28 : 22;
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!draft.trim()) return;
+    onAddReply(node.id, draft);
+    setDraft("");
+    setReplying(false);
+  }
+
+  return (
+    <div className="flex gap-2">
+      <Avatar id={node.author_id} name={node.author_name} size={avatarSize} />
+      <div className="min-w-0 flex-1">
+        <div className="rounded-2xl px-3 py-2 inline-block max-w-full" style={{ background: "#E6CFA9" }}>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{node.author_name}</span>
+            {useIsVerified(node.author_id) && <VerificationBadge size={12} />}
+            <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(node.created_at)}</span>
+          </div>
+          <p className="text-sm leading-snug mt-0.5 break-words" style={{ color: "#2C1414" }}>{node.message}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setReplying(r => !r); setDraft(""); }}
+          className="text-xs font-medium mt-1 ml-3 hover:underline"
+          style={{ color: "#9A3F3F" }}
+        >
+          Reply
+        </button>
+
+        {replying && (
+          <form onSubmit={submit} className="flex items-center gap-2 mt-2">
             <input
               type="text"
-              value={commentDraft}
-              onChange={e => setCommentDraft(e.target.value)}
-              placeholder="Add a comment…"
-              className="flex-1 px-3 py-1.5 text-sm rounded-lg border focus:outline-none focus:ring-2"
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              placeholder={`Reply to ${node.author_name}…`}
+              autoFocus
+              className="flex-1 px-3 py-1.5 text-sm rounded-full border focus:outline-none focus:ring-2"
               style={{ background: "#FBF9D1", borderColor: "#C1856D", color: "#2C1414" }}
             />
-            <button type="submit" disabled={!commentDraft.trim()} className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
-              Post
+            <button type="submit" disabled={!draft.trim()} className="px-3 py-1.5 text-xs font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+              Reply
             </button>
           </form>
-        </div>
-      )}
-    </>
+        )}
+
+        {(node.replies?.length ?? 0) > 0 && (
+          <div className="flex flex-col gap-3 mt-3 pl-3" style={{ borderLeft: "2px solid #C1856D" }}>
+            {node.replies.map(child => (
+              <CommentThread key={child.id} node={child} depth={depth + 1} onAddReply={onAddReply} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -608,6 +831,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
         <div className="flex items-center gap-1.5">
           <Avatar id={item.finder_id} name={item.finder_name} size={20} />
           <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}</span>
+          {useIsVerified(item.finder_id) && <VerificationBadge size={13} />}
           <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(item.created_at)}</span>
           <StatusBadge status={item.status} />
         </div>
@@ -676,6 +900,7 @@ function QuotedItem({ item }: { item: Item }) {
         <div className="flex items-center gap-1.5">
           <Avatar id={item.finder_id} name={item.finder_name} size={18} />
           <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}</span>
+          {useIsVerified(item.finder_id) && <VerificationBadge size={12} />}
           <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(item.created_at)}</span>
         </div>
         <p className="text-sm font-semibold leading-snug" style={{ color: "#2C1414" }}>{item.title}</p>
@@ -971,6 +1196,7 @@ function FinderForm({ onSubmit }: { onSubmit: (item: Partial<Item>) => void }) {
   const [caption, setCaption] = useState("");
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [showCaptionImport, setShowCaptionImport] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
@@ -993,6 +1219,9 @@ function FinderForm({ onSubmit }: { onSubmit: (item: Partial<Item>) => void }) {
           category: parsed.category || f.category,
           location_found: parsed.location_found || f.location_found,
           description: parsed.description || f.description,
+          // Caption text doesn't specify a time found — default to now (today),
+          // but keep it editable so the finder can correct it before logging.
+          time_found: f.time_found || nowForDateTimeLocal(),
         }));
         setImportMsg("Filled from caption. Review the fields before logging.");
       }
@@ -1040,34 +1269,63 @@ function FinderForm({ onSubmit }: { onSubmit: (item: Partial<Item>) => void }) {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold" style={{ color: "#2C1414" }}>Log a Found Item</h1>
-        <p className="mt-1 text-sm" style={{ color: "#6B3A3A" }}>Fill in what you found, then drop it off at the admin office. Works offline — your submission will sync when you reconnect.</p>
-      </div>
-
-      {/* AI caption import */}
-      <div className="rounded-lg p-4 mb-5" style={{ background: "#F5ECEC", border: "1px dashed #C1856D" }}>
-        <label className="block text-sm font-semibold mb-1.5" style={{ color: "#2C1414" }}>Fill from a post caption</label>
-        <p className="text-xs mb-2" style={{ color: "#6B3A3A" }}>Paste the caption of a lost-and-found post and we'll fill in the fields below. You can edit everything before logging.</p>
-        <textarea
-          value={caption}
-          onChange={e => setCaption(e.target.value)}
-          rows={3}
-          placeholder="Paste the post caption here..."
-          className={inputCls + " resize-none"}
-        />
-        <div className="flex items-center gap-3 mt-2">
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold" style={{ color: "#2C1414" }}>Log a Found Item</h1>
+          <p className="mt-1 text-sm" style={{ color: "#6B3A3A" }}>Enter the item details and drop it off at the admin office.</p>
+        </div>
+        {!showCaptionImport && (
           <button
             type="button"
-            onClick={handleFillFromCaption}
-            disabled={!caption.trim() || importing}
-            className={btnPrimary + " disabled:opacity-40 disabled:cursor-not-allowed"}
+            onClick={() => setShowCaptionImport(true)}
+            className="inline-flex items-center justify-center w-10 h-10 rounded-lg border shrink-0 transition-colors"
+            style={{ borderColor: "#C1856D", color: "#9A3F3F", background: "#F5ECEC" }}
+            aria-label="Generate from caption"
+            title="Generate from caption"
           >
-            {importing ? "Generating…" : "Generate"}
+            <IconSparkles />
           </button>
-          {importMsg && <span className="text-xs" style={{ color: "#6B3A3A" }}>{importMsg}</span>}
-        </div>
+        )}
       </div>
+
+      {/* AI caption import — collapsed by default to keep the form clean */}
+      {showCaptionImport && (
+        <div className="rounded-lg p-4 mb-5" style={{ background: "#F5ECEC", border: "1px dashed #C1856D" }}>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <label className="block text-sm font-semibold mb-1.5" style={{ color: "#2C1414" }}>Fill from a post caption</label>
+              <p className="text-xs mb-2" style={{ color: "#6B3A3A" }}>Paste a post caption to auto-fill the form.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCaptionImport(false)}
+              aria-label="Hide caption import"
+              style={{ color: "#9A7070" }}
+            >
+              <IconX />
+            </button>
+          </div>
+          <textarea
+            value={caption}
+            onChange={e => setCaption(e.target.value)}
+            rows={3}
+            placeholder="Paste caption here…"
+            className={inputCls + " resize-none"}
+          />
+          <div className="flex items-center gap-3 mt-2">
+            <button
+              type="button"
+              onClick={handleFillFromCaption}
+              disabled={!caption.trim() || importing}
+              className={btnPrimary + " inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
+            >
+              <IconSparkles />
+              {importing ? "Generating…" : "Generate"}
+            </button>
+            {importMsg && <span className="text-xs" style={{ color: "#6B3A3A" }}>{importMsg}</span>}
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         <div>
@@ -1101,7 +1359,7 @@ function FinderForm({ onSubmit }: { onSubmit: (item: Partial<Item>) => void }) {
         <div>
           <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Private note to staff</label>
           <textarea name="private_note" value={form.private_note} onChange={handleChange} rows={2} placeholder="Context the catalog shouldn't show — condition, exact location, etc." className={inputCls + " resize-none"} />
-          <p className="text-xs mt-1" style={{ color: "#9A7070" }}>Visible only to staff. Not shown publicly.</p>
+          <p className="text-xs mt-1" style={{ color: "#9A7070" }}>Staff only — not visible publicly.</p>
         </div>
 
         <div>
@@ -1127,7 +1385,7 @@ function FinderForm({ onSubmit }: { onSubmit: (item: Partial<Item>) => void }) {
               <div className="flex flex-col items-center gap-2" style={{ color: "#9A7070" }}>
                 <IconCamera />
                 <p className="text-sm">Tap to add a photo</p>
-                <p className="text-xs">Location data removed automatically before upload</p>
+                <p className="text-xs">Location data is removed automatically.</p>
               </div>
             )}
           </div>
@@ -1535,6 +1793,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
           </div>
         </div>
       )}
+
     </div>
   );
 }
@@ -1593,13 +1852,9 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
           <IconMenu />
         </button>
         <button onClick={() => setView("catalog")} className="flex items-center gap-2 shrink-0" aria-label="Home">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "#9A3F3F" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FBF9D1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"/>
-              <path d="m21 21-4.35-4.35"/>
-            </svg>
-          </div>
-          <span className="font-semibold text-sm hidden md:block" style={{ color: "#2C1414" }}>FoundIt</span>
+          <span className="font-semibold text-2xl block" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
+            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>It</span>
+          </span>
         </button>
 
         {/* Centered search with a filter icon on the right */}
@@ -1699,13 +1954,15 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
       </div>
 
       {/* Left sidebar drawer */}
-      {menuOpen && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
-          <aside
-            className="absolute left-0 top-0 bottom-0 w-64 max-w-[80%] p-4 flex flex-col gap-1 shadow-xl"
-            style={{ background: "#FBF9D1", borderRight: "1px solid #C1856D" }}
-          >
+      <div className={"fixed inset-0 z-50 " + (menuOpen ? "" : "pointer-events-none")} aria-hidden={!menuOpen}>
+        <div
+          className={"absolute inset-0 bg-black/40 transition-opacity duration-300 " + (menuOpen ? "opacity-100" : "opacity-0")}
+          onClick={() => setMenuOpen(false)}
+        />
+        <aside
+          className={"absolute left-0 top-0 bottom-0 w-64 max-w-[80%] p-4 flex flex-col gap-1 shadow-xl transition-transform duration-300 ease-out " + (menuOpen ? "translate-x-0" : "-translate-x-full")}
+          style={{ background: "#FBF9D1", borderRight: "1px solid #C1856D" }}
+        >
             <div className="flex items-center justify-between mb-3">
               <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>Menu</span>
               <button onClick={() => setMenuOpen(false)} aria-label="Close menu" style={{ color: "#9A7070" }}>
@@ -1725,9 +1982,8 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
                 {item.label}
               </button>
             ))}
-          </aside>
-        </div>
-      )}
+        </aside>
+      </div>
     </header>
   );
 }
@@ -1745,7 +2001,160 @@ function GoogleGlyph() {
   );
 }
 
-function SignIn({ onSignIn }: { onSignIn: () => Promise<void> }) {
+function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
+  const steps = [
+    { n: "1", title: "Log it", body: "Found something? Log the details in seconds — works even offline." },
+    { n: "2", title: "Staff verify custody", body: "The admin office confirms it physically has the item before it goes public." },
+    { n: "3", title: "Claim it privately", body: "Owners prove ownership in a private thread with staff. No stranger messages." },
+    { n: "4", title: "Pick it up", body: "Once verified, staff approve release and you collect your item at the office." },
+  ];
+  return (
+    <div className="min-h-[100dvh]" style={{ background: "#FBF9D1", color: "#2C1414" }}>
+      {/* Nav — single line, slim */}
+      <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(251,249,209,0.85)", borderBottom: "1px solid #E6CFA9" }}>
+        <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
+          <span className="font-semibold text-2xl" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
+            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>It</span>
+          </span>
+          <button
+            onClick={onGetStarted}
+            className="px-4 py-2 text-sm font-semibold rounded-lg transition-all active:scale-[0.98]"
+            style={{ background: "#9A3F3F", color: "#FBF9D1", boxShadow: "0 1px 2px rgba(154,63,63,0.2)" }}
+          >
+            Sign in
+          </button>
+        </div>
+      </header>
+
+      {/* Hero — asymmetric split */}
+      <section className="max-w-6xl mx-auto px-5 pt-16 pb-20 grid lg:grid-cols-12 gap-12 items-center">
+        <div className="lg:col-span-7">
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-6"
+            style={{ background: "#F5ECEC", color: "#9A3F3F", border: "1px solid #E8C4AD" }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#9A3F3F" }} />
+            Campus admin office · verified
+          </span>
+          <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] tracking-tight">
+            Lost it on campus?{" "}
+            <span style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
+              <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>It</span>
+            </span>{" "}
+            probably has it.
+          </h1>
+          <p className="mt-5 text-lg leading-relaxed max-w-[52ch]" style={{ color: "#6B3A3A" }}>
+            The office's real lost-and-found, online. Finders log items, staff verify custody, and you claim what's yours — privately.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center gap-4">
+            <button
+              onClick={onGetStarted}
+              className="inline-flex items-center gap-2 px-6 py-3 text-base font-semibold rounded-xl transition-all active:scale-[0.98]"
+              style={{ background: "#9A3F3F", color: "#FBF9D1", boxShadow: "0 4px 14px rgba(154,63,63,0.25)" }}
+            >
+              Get started
+              <IconArrowRight />
+            </button>
+            <span className="text-sm" style={{ color: "#9A7070" }}>Free · sign in with Google</span>
+          </div>
+        </div>
+
+        {/* Hero visual — a branded "found item" ticket, not a fake screenshot */}
+        <div className="lg:col-span-5">
+          <div className="relative">
+            <div className="absolute -inset-4 rounded-3xl opacity-60" aria-hidden="true"
+              style={{ background: "radial-gradient(300px circle at 70% 20%, rgba(193,133,109,0.35), transparent 60%)" }} />
+            <div className="relative rounded-2xl p-5 rotate-1 hover:rotate-0 transition-transform duration-300"
+              style={{ background: "#FBF9D1", border: "1px solid #C1856D", boxShadow: "0 10px 30px rgba(154,63,63,0.15)" }}>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: "#F2EBE5", color: "#5C2020", border: "1px solid #D4A896" }}>In office</span>
+                <span className="text-xs" style={{ color: "#9A7070" }}>#FND-2043</span>
+              </div>
+              <div className="w-full h-28 rounded-xl mb-4 flex items-center justify-center" style={{ background: "#E6CFA9" }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9A3F3F" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                </svg>
+              </div>
+              <h3 className="font-semibold" style={{ color: "#2C1414" }}>Black wireless earbuds</h3>
+              <p className="text-sm mt-1" style={{ color: "#6B3A3A" }}>Found near the Library entrance</p>
+              <div className="mt-4 pt-4 flex items-center justify-between" style={{ borderTop: "1px solid #E6CFA9" }}>
+                <span className="text-xs" style={{ color: "#9A7070" }}>Verified by staff</span>
+                <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: "#9A3F3F" }}>
+                  Claim
+                  <IconArrowRight />
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Trust strip — divided, not cards */}
+      <section style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+        <div className="max-w-6xl mx-auto px-5 py-10 grid grid-cols-1 sm:grid-cols-3 sm:divide-x" style={{ borderColor: "rgba(255,255,255,0.15)" }}>
+          {[
+            { k: "Verified", v: "Every item confirmed in-office before it's public" },
+            { k: "Private", v: "Claims happen in a staff-reviewed thread only" },
+            { k: "Minimal", v: "We use just your name and email — nothing more" },
+          ].map((s, i) => (
+            <div key={s.k} className={i === 0 ? "sm:pr-8" : "sm:px-8 pt-6 sm:pt-0"}>
+              <p className="text-lg font-semibold">{s.k}</p>
+              <p className="mt-1 text-sm leading-relaxed" style={{ color: "#F5ECEC" }}>{s.v}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* How it works — stepped rail, distinct layout family */}
+      <section className="max-w-4xl mx-auto px-5 py-20">
+        <h2 className="text-3xl md:text-4xl font-bold tracking-tight">How it works</h2>
+        <p className="mt-3 text-base max-w-[55ch]" style={{ color: "#6B3A3A" }}>
+          A strict, auditable flow — not a social feed. Four steps from found to reunited.
+        </p>
+        <ol className="mt-10 flex flex-col gap-6">
+          {steps.map((s, i) => (
+            <li key={s.n} className="flex gap-5">
+              <div className="flex flex-col items-center">
+                <span className="inline-flex items-center justify-center w-10 h-10 rounded-full text-base font-bold shrink-0"
+                  style={{ background: "#9A3F3F", color: "#FBF9D1" }}>{s.n}</span>
+                {i < steps.length - 1 && <span className="w-px flex-1 mt-2" style={{ background: "#E6CFA9" }} />}
+              </div>
+              <div className="pb-2">
+                <h3 className="text-lg font-semibold" style={{ color: "#2C1414" }}>{s.title}</h3>
+                <p className="mt-1 text-sm leading-relaxed max-w-[50ch]" style={{ color: "#6B3A3A" }}>{s.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {/* Closing CTA band */}
+      <section className="px-5 pb-20">
+        <div className="max-w-6xl mx-auto rounded-3xl px-8 py-14 text-center relative overflow-hidden"
+          style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+          <div className="pointer-events-none absolute inset-0" aria-hidden="true"
+            style={{ background: "radial-gradient(500px circle at 50% 0%, rgba(154,63,63,0.12), transparent 60%)" }} />
+          <h2 className="relative text-3xl md:text-4xl font-bold tracking-tight">Lost something? Let's find it.</h2>
+          <p className="relative mt-3 text-base max-w-[46ch] mx-auto" style={{ color: "#6B3A3A" }}>
+            Sign in to browse verified found items or log something you picked up.
+          </p>
+          <button
+            onClick={onGetStarted}
+            className="relative mt-8 inline-flex items-center gap-2 px-7 py-3.5 text-base font-semibold rounded-xl transition-all active:scale-[0.98]"
+            style={{ background: "#9A3F3F", color: "#FBF9D1", boxShadow: "0 4px 14px rgba(154,63,63,0.25)" }}
+          >
+            Get started
+            <IconArrowRight />
+          </button>
+        </div>
+      </section>
+
+      <footer className="px-5 py-8 text-center text-xs" style={{ color: "#9A7070", borderTop: "1px solid #E6CFA9" }}>
+        No public chat. No peer-to-peer contact. Every item verified by the office.
+      </footer>
+    </div>
+  );
+}
+
+function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1761,42 +2170,107 @@ function SignIn({ onSignIn }: { onSignIn: () => Promise<void> }) {
     }
   }
 
+  const trustPoints = [
+    "Every item verified by the admin office",
+    "Claims stay private — no stranger messages",
+    "Your account is just your name and email",
+  ];
+
   return (
-    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "#FBF9D1" }}>
-      <div className="w-full max-w-sm rounded-2xl p-8 text-center shadow-sm" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-4" style={{ background: "#9A3F3F" }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FBF9D1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"/>
-            <path d="m21 21-4.35-4.35"/>
-          </svg>
+    <div className="min-h-[100dvh] grid lg:grid-cols-2" style={{ background: "#FBF9D1" }}>
+      {/* Brand panel — carries the trust story */}
+      <div
+        className="relative hidden lg:flex flex-col justify-between p-10 overflow-hidden"
+        style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+      >
+        {/* soft layered glows, tinted to the panel hue (no AI-purple) */}
+        <div className="pointer-events-none absolute inset-0" aria-hidden="true"
+          style={{ background: "radial-gradient(600px circle at 15% 10%, rgba(255,255,255,0.10), transparent 45%), radial-gradient(500px circle at 90% 90%, rgba(193,133,109,0.35), transparent 50%)" }} />
+        <div className="relative">
+          <span className="text-3xl font-semibold" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
+            <span style={{ color: "#FBF9D1" }}>Found</span><span style={{ color: "#E8B89E" }}>It</span>
+          </span>
         </div>
-        <h1 className="text-xl font-semibold" style={{ color: "#2C1414" }}>FoundIt</h1>
-        <p className="mt-1.5 text-sm" style={{ color: "#6B3A3A" }}>Sign in to log found items and claim what's yours.</p>
+        <div className="relative">
+          <h2 className="text-3xl font-bold leading-tight tracking-tight max-w-sm">
+            The campus lost-and-found you can actually trust.
+          </h2>
+          <ul className="mt-8 flex flex-col gap-4">
+            {trustPoints.map(p => (
+              <li key={p} className="flex items-start gap-3 text-sm" style={{ color: "#F5ECEC" }}>
+                <span className="mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full shrink-0"
+                  style={{ background: "rgba(255,255,255,0.16)" }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FBF9D1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
+                {p}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="relative text-xs" style={{ color: "#E8B89E" }}>
+          No public chat. No peer-to-peer contact. Custody verified before pickup.
+        </p>
+      </div>
 
-        <button
-          onClick={handleClick}
-          disabled={busy}
-          className="mt-6 w-full flex items-center justify-center gap-2.5 px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          style={{ background: "#FBF9D1", color: "#2C1414", border: "1px solid #C1856D" }}
-        >
-          {busy ? (
-            <>
-              <span className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#9A3F3F", borderTopColor: "transparent" }} />
-              Signing in…
-            </>
-          ) : (
-            <>
-              <GoogleGlyph />
-              Continue with Google
-            </>
+      {/* Sign-in card */}
+      <div className="flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-sm">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 text-sm font-medium mb-8 transition-colors hover:opacity-70"
+              style={{ color: "#6B3A3A" }}
+            >
+              <IconArrowLeft />
+              Back
+            </button>
           )}
-        </button>
 
-        {error && (
-          <p className="mt-3 text-xs font-medium" style={{ color: "#9A3F3F" }}>{error}</p>
-        )}
+          {/* brand shown on mobile where the panel is hidden */}
+          <span className="lg:hidden text-2xl font-semibold block mb-6" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
+            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>It</span>
+          </span>
 
-        <p className="mt-6 text-xs" style={{ color: "#9A7070" }}>Only your name and email are used to identify your account.</p>
+          <h1 className="text-3xl font-bold tracking-tight" style={{ color: "#2C1414" }}>Welcome back</h1>
+          <p className="mt-2 text-sm leading-relaxed" style={{ color: "#6B3A3A" }}>
+            Sign in to log found items and claim what's yours.
+          </p>
+
+          <button
+            onClick={handleClick}
+            disabled={busy}
+            className="mt-8 w-full flex items-center justify-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ background: "#FBF9D1", color: "#2C1414", border: "1.5px solid #C1856D", boxShadow: "0 1px 2px rgba(154,63,63,0.08)" }}
+          >
+            {busy ? (
+              <>
+                <span className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#9A3F3F", borderTopColor: "transparent" }} />
+                Signing in…
+              </>
+            ) : (
+              <>
+                <GoogleGlyph />
+                Continue with Google
+              </>
+            )}
+          </button>
+
+          {error && (
+            <p className="mt-3 text-sm font-medium flex items-center gap-1.5" style={{ color: "#9A3F3F" }}>
+              <span aria-hidden="true">⚠</span>{error}
+            </p>
+          )}
+
+          <div className="mt-8 flex items-center gap-3">
+            <span className="h-px flex-1" style={{ background: "#E6CFA9" }} />
+            <span className="text-xs" style={{ color: "#9A7070" }}>secured by Google</span>
+            <span className="h-px flex-1" style={{ background: "#E6CFA9" }} />
+          </div>
+
+          <p className="mt-6 text-xs leading-relaxed" style={{ color: "#9A7070" }}>
+            By continuing you agree that only your name and email are used to identify your account. We never post on your behalf.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -1806,12 +2280,15 @@ function SignIn({ onSignIn }: { onSignIn: () => Promise<void> }) {
 
 // ─── My Profile View ──────────────────────────────────────────────────────────
 
-function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut }: {
+function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verification, onSubmitVerification, verifiedIds }: {
   user: AuthUser;
   items: Item[];
   reposts: Repost[];
   onRemoveRepost: (itemId: string) => void;
   onSignOut: () => void;
+  verification?: StudentVerification;
+  onSubmitVerification: (docType: DocType, file: File) => Promise<string>;
+  verifiedIds: Set<string>;
 }) {
   const myItems = items
     .filter(i => i.finder_id === user.id)
@@ -1820,6 +2297,28 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut }: {
     .filter(r => r.user_id === user.id)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
   const empty = myItems.length === 0 && myReposts.length === 0;
+
+  const [docType, setDocType] = useState<DocType>("student_id");
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const verifyFileRef = useRef<HTMLInputElement>(null);
+  const status = verification?.status ?? "unverified";
+
+  async function handleVerifyFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setVerifyBusy(true);
+    setVerifyMsg(null);
+    try {
+      const msg = await onSubmitVerification(docType, file);
+      setVerifyMsg(msg);
+    } catch {
+      setVerifyMsg("Something went wrong reading that file. Please try again.");
+    } finally {
+      setVerifyBusy(false);
+      if (verifyFileRef.current) verifyFileRef.current.value = "";
+    }
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
@@ -1833,11 +2332,53 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut }: {
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold" style={{ color: "#2C1414" }}>{user.name}</h1>
+          <h1 className="text-xl font-semibold flex items-center gap-1.5" style={{ color: "#2C1414" }}>
+            {user.name}
+            {verifiedIds.has(user.id) && <VerificationBadge size={18} />}
+          </h1>
           <p className="text-sm truncate" style={{ color: "#6B3A3A" }}>{user.email}</p>
         </div>
         <button onClick={onSignOut} className={btnSecondary}>Sign out</button>
       </div>
+
+      {/* Student verification (Requirement 15) — hidden once verified */}
+      {status !== "verified" && (
+      <div className="rounded-xl p-5 mb-6" style={{ background: "#F5ECEC", border: "1px solid #C1856D" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <VerificationBadge size={16} />
+          <h2 className="text-sm font-semibold" style={{ color: "#2C1414" }}>Student verification</h2>
+        </div>
+
+        <p className="text-sm mb-3" style={{ color: "#6B3A3A" }}>
+              {status === "rejected"
+                ? "That document wasn't confirmed. You can submit a clearer photo and try again."
+                : "Prove you're a student to get a verified badge. Submit your Student ID, Certificate of Registration, or class schedule — we check it automatically in seconds."}
+            </p>
+            <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>Document type</label>
+            <select
+              value={docType}
+              onChange={e => setDocType(e.target.value as DocType)}
+              className={inputCls + " mb-3"}
+            >
+              <option value="student_id">Student ID</option>
+              <option value="cor">Certificate of Registration (COR)</option>
+              <option value="class_schedule">Class schedule</option>
+            </select>
+            <input ref={verifyFileRef} type="file" accept="image/*" className="hidden" onChange={handleVerifyFile} />
+            <button
+              type="button"
+              onClick={() => verifyFileRef.current?.click()}
+              disabled={verifyBusy}
+              className={btnPrimary + " inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
+            >
+              {verifyBusy ? "Checking…" : "Get verified"}
+            </button>
+        <p className="text-xs mt-2" style={{ color: "#9A7070" }}>
+          Your document image isn't stored — only the result. Photo/biometric matching isn't used.
+        </p>
+        {verifyMsg && <p className="text-xs mt-2" style={{ color: "#6B3A3A" }}>{verifyMsg}</p>}
+      </div>
+      )}
 
       {empty ? (
         <div className="text-center py-16 rounded-xl" style={{ border: "1px dashed #C1856D" }}>
@@ -1876,17 +2417,20 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut }: {
 export default function App() {
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
   const [view, setView] = useState<View>("catalog");
-  const [items, setItems] = useState<Item[]>(MOCK_ITEMS);
-  const [claims, setClaims] = useState<Claim[]>(MOCK_CLAIMS);
-  const [notices, setNotices] = useState<MissingNotice[]>(MOCK_MISSING);
+  const [items, setItems] = usePersistentState<Item[]>("items", MOCK_ITEMS);
+  const [claims, setClaims] = usePersistentState<Claim[]>("claims", MOCK_CLAIMS);
+  const [notices, setNotices] = usePersistentState<MissingNotice[]>("notices", MOCK_MISSING);
   const [claimingItem, setClaimingItem] = useState<Item | null>(null);
-  const [upvotedIds, setUpvotedIds] = useState<Set<string>>(new Set());
-  const [reposts, setReposts] = useState<Repost[]>([]);
-  const [comments, setComments] = useState<Record<string, ItemComment[]>>({});
+  const [upvotedIds, setUpvotedIds] = usePersistentState<Set<string>>("upvotedIds", new Set(), setSerializer);
+  const [reposts, setReposts] = usePersistentState<Repost[]>("reposts", []);
+  const [comments, setComments] = usePersistentState<Record<string, ItemComment[]>>("comments", {});
+  const [verifications, setVerifications] = usePersistentState<Record<string, StudentVerification>>("verifications", {});
   const [repostingItem, setRepostingItem] = useState<Item | null>(null);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [offlineQueueCount] = useState(0);
+  // Signed-out routing: show the landing page first, then the sign-in screen.
+  const [authView, setAuthView] = useState<"landing" | "login">("landing");
 
   // Restore any existing session on load, and subscribe to auth changes.
   useEffect(() => {
@@ -1902,6 +2446,13 @@ export default function App() {
   const user = auth.status === "signed_in" ? auth.user : null;
   const role: Role = user?.role ?? "owner";
 
+  // Set of user ids that are verified students — passed to cards/threads so the
+  // "Verified student" badge shows next to their names.
+  const verifiedIds = new Set(
+    Object.values(verifications).filter(v => v.status === "verified").map(v => v.user_id),
+  );
+  const myVerification = user ? verifications[user.id] : undefined;
+
   async function handleSignIn() {
     await signInWithGoogle();
   }
@@ -1909,10 +2460,57 @@ export default function App() {
   async function handleSignOut() {
     await signOut();
     setView("catalog");
+    setAuthView("landing");
   }
 
   function handleUpvote(id: string) {
     setUpvotedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  }
+
+  // Submit a student document for AI-assisted verification (Requirement 15).
+  // Reads the image, calls verifyStudent (AI-only), and stores ONLY the decision
+  // + extracted fields (never the raw image). Verified on a high-confidence,
+  // name-matched pass; otherwise rejected. If the AI is unavailable, nothing is
+  // stored and a message is returned for the UI. Returns a user-facing message.
+  async function handleSubmitVerification(docType: DocType, file: File): Promise<string> {
+    if (!user) return "Please sign in first.";
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+    const result = await verifyStudent({
+      imageBase64: base64,
+      mimeType: file.type || "image/jpeg",
+      accountName: user.name,
+      docType,
+    });
+
+    // AI unavailable → don't store any status; just surface the message.
+    if (result.decision === "unavailable") {
+      return result.message ?? "Verification is temporarily unavailable.";
+    }
+    const status: VerificationStatus = result.decision; // "verified" | "rejected"
+
+    const now = new Date().toISOString();
+    setVerifications(prev => ({
+      ...prev,
+      [user.id]: {
+        user_id: user.id,
+        user_name: user.name,
+        status,
+        doc_type: docType,
+        extracted: result.extracted,
+        confidence: result.confidence,
+        ai_verdict: result.ai_verdict,
+        submitted_at: now,
+        decided_at: now,
+        decided_by: "ai",
+      },
+    }));
+    return result.message ?? (result.decision === "verified" ? "Verified." : "Not confirmed.");
   }
 
   function handleAddRepost(itemId: string, caption: string) {
@@ -1962,21 +2560,24 @@ export default function App() {
     setComments(prev => ({ ...prev, [itemId]: [...(prev[itemId] ?? []), comment] }));
   }
 
-  function handleAddReply(itemId: string, commentId: string, message: string) {
+  function handleAddReply(itemId: string, parentId: string, message: string) {
     if (!user || !message.trim()) return;
-    const reply: CommentReply = {
+    const reply: CommentNode = {
       id: `rp${Date.now()}`,
       author_id: user.id,
       author_name: user.name,
       message: message.trim(),
       created_at: new Date().toISOString(),
+      replies: [],
     };
-    setComments(prev => ({
-      ...prev,
-      [itemId]: (prev[itemId] ?? []).map(c =>
-        c.id === commentId ? { ...c, replies: [...c.replies, reply] } : c,
-      ),
-    }));
+    // Immutably append `reply` under the node whose id === parentId, at any depth.
+    const addInto = (nodes: CommentNode[]): CommentNode[] =>
+      nodes.map(n =>
+        n.id === parentId
+          ? { ...n, replies: [...(n.replies ?? []), reply] }
+          : { ...n, replies: addInto(n.replies ?? []) },
+      );
+    setComments(prev => ({ ...prev, [itemId]: addInto(prev[itemId] ?? []) }));
   }
 
   function handleClaimSubmit(details: string) {
@@ -2053,10 +2654,14 @@ export default function App() {
     );
   }
   if (auth.status === "signed_out" || !user) {
-    return <SignIn onSignIn={handleSignIn} />;
+    if (authView === "login") {
+      return <SignIn onSignIn={handleSignIn} onBack={() => setAuthView("landing")} />;
+    }
+    return <LandingPage onGetStarted={() => setAuthView("login")} />;
   }
 
   return (
+    <VerifiedContext.Provider value={verifiedIds}>
     <div className="min-h-screen" style={{ background: "#FBF9D1" }}>
       <Nav view={view} setView={setView} role={role} user={user} search={search} setSearch={setSearch} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} offlineQueueCount={offlineQueueCount} />
       <main>
@@ -2064,7 +2669,7 @@ export default function App() {
         {view === "log" && <FinderForm onSubmit={handleFinderSubmit} />}
         {view === "missing" && <MissingNotices notices={notices} onPost={handleNoticePost} />}
         {view === "claims" && <OwnerClaimsView claims={ownerClaims} items={items} onReply={handleOwnerReply} />}
-        {view === "profile" && <ProfileView user={user} items={items} reposts={reposts} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} />}
+        {view === "profile" && <ProfileView user={user} items={items} reposts={reposts} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} verification={myVerification} onSubmitVerification={handleSubmitVerification} verifiedIds={verifiedIds} />}
         {view === "staff" && <StaffDashboard items={items} claims={claims} allItems={items} onStatusChange={handleStatusChange} onClaimAction={handleClaimAction} onStaffReply={handleStaffReply} />}
       </main>
 
@@ -2081,5 +2686,6 @@ export default function App() {
         />
       )}
     </div>
+    </VerifiedContext.Provider>
   );
 }

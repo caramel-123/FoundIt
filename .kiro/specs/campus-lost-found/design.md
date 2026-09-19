@@ -32,8 +32,20 @@ index.html
   `useState`. There is no network, persistence, or backend yet.
 - **Data:** the app starts with no seeded records. The initial item, claim, and
   missing-notice collections are empty; content appears only as the signed-in
-  user creates it during the session. (Data is still in-memory and resets on
-  reload until the Supabase data layer lands in Phase 3.)
+  user creates it during the session. Application state is held in React
+  `useState` and **persisted to `localStorage`** (Requirement 14) so it survives
+  page reloads, until the Supabase data layer lands in Phase 3.
+
+### Client-side persistence (Requirement 14)
+
+A small `usePersistentState` hook wraps `useState`: it hydrates the initial value
+from `localStorage` on first render (falling back to the default if the key is
+absent or the JSON is malformed) and writes back via `useEffect` whenever the
+value changes. Persisted slices — `items`, `claims`, `notices`, `comments`,
+`reposts`, and `upvotedIds` — are stored under versioned keys prefixed
+`foundit:v1:` so a later Supabase layer can supersede them cleanly. `upvotedIds`
+is a `Set`, so it is (de)serialized via array form. Auth/session state is not
+persisted here; it stays owned by `src/lib/auth.ts`.
 
 ### Component structure (`src/App.tsx`)
 
@@ -134,13 +146,23 @@ interface MissingNotice {
     clipboard via `navigator.clipboard`; on failure it surfaces the link text so
     it can be copied manually. A brief "Link copied" confirmation shows on the
     card.
-  - **Comment** reveals an inline thread on the card. Comments are stored per
-    item id in a `Record<string, ItemComment[]>` map in `App`. Posting appends a
-    comment attributed to the signed-in user. Each comment has a **Reply** action
-    that reveals a per-comment input; replies are stored in the comment's
-    `replies` array and rendered indented under their parent. The card's comment
-    count reflects `baseComments + total comments + total replies`. Empty threads
-    show a first-comment prompt.
+  - **Comment** opens a **modal comment panel** (`CommentModal`) — a centered
+    pop-up dialog over a dimmed backdrop, not an inline slide-down. The panel
+    renders the **full post** at the top of its scrollable area (poster, status,
+    title, description, photo if any, found location/time), then a scrollable
+    **branching** comment tree, with a sticky composer at the bottom. It closes
+    via a close button, backdrop click, or Escape.
+  - **Branching replies:** comments and replies share one recursive node type
+    (`CommentNode`, each with its own `replies: CommentNode[]`), so any node can
+    be replied to at arbitrary depth. Nodes are stored per post id in a
+    `Record<string, CommentNode[]>` map in `App`. A recursive `CommentThread`
+    component renders each node with a per-node **Reply** input and progressively
+    increasing indentation. Adding a reply walks the tree by parent id
+    immutably and appends the new node to that parent's `replies`. The card's
+    comment count reflects the base count plus the total node count across the
+    whole tree. Empty threads show a first-comment prompt inside the panel. The
+    card's comment button is a trigger only (it no longer expands content in
+    place).
   - All of this is in-memory and resets on reload until the Supabase data layer
     lands.
   - **Generalized engagement (items + reposts):** upvotes, comments, and (share
@@ -222,9 +244,21 @@ visible item shows as a reposted card quoting the original.
 
 ## Authentication design — Google sign-in (Requirement 10)
 
-Authentication gates the entire app: an unauthenticated visitor sees only a
-sign-in screen, and all views (catalog, finder form, claims, staff) render only
-once a session exists.
+Authentication gates the entire app: an unauthenticated visitor sees only the
+public **landing page** (Requirement 10a) and, from its call to action, the
+**sign-in screen**. All app views (catalog, finder form, claims, staff) render
+only once a session exists.
+
+### Signed-out routing (landing → login)
+
+While signed out, `App` tracks a small local `authView` state:
+`"landing" | "login"`. It defaults to `"landing"`. The landing page's primary CTA
+sets it to `"login"` (renders `<SignIn/>`); the sign-in screen has a back control
+that returns to `"landing"`. This is client-only view state (no URL routing yet)
+and resets to `"landing"` whenever the user is signed out. The `<LandingPage/>`
+is a new presentational component: brand wordmark, tagline, a compact
+"how it works" summary (log → verify → claim → release), and the CTA. Neither the
+landing page nor the sign-in screen exposes authenticated data.
 
 ### Approach
 
@@ -282,8 +316,9 @@ type AuthState =
 
 | Component | Change |
 |---|---|
-| `App` | Add auth state; render `<SignIn/>` when signed out, a loader while loading, and the current app only when signed in. Pass `AuthUser` down. |
-| `SignIn` (new) | Branded sign-in screen with the "Continue with Google" button and error display. |
+| `App` | Add auth state and a signed-out `authView` (`"landing" \| "login"`); render `<LandingPage/>` or `<SignIn/>` when signed out, a loader while loading, and the current app only when signed in. Pass `AuthUser` down. |
+| `LandingPage` (new) | Public marketing/intro screen: brand wordmark, tagline, "how it works" summary, and a "Get started" CTA that opens the sign-in screen. |
+| `SignIn` (new) | Branded sign-in screen with the "Continue with Google" button, error display, and a back control to the landing page. |
 | `Nav` | Replace the demo role selector with the signed-in user's avatar/name and a "Sign out" action. |
 | `ClaimModal` / claim handlers | Use `AuthUser.id` and `AuthUser.name` instead of hardcoded owner values. |
 | `FinderForm` handler | Set `finder_id` from `AuthUser.id`. |
@@ -358,6 +393,11 @@ issues with sites like Facebook — we never fetch the post ourselves.
    (any field may be empty). Category is constrained to the app's `CATEGORIES`.
 4. `FinderForm` merges non-empty fields into its form state; all fields stay
    editable. Nothing auto-submits.
+5. If the "When did you find it?" (`time_found`) field is still empty after the
+   merge, `FinderForm` defaults it to now (current date/time, formatted for the
+   `datetime-local` input). The parser does not infer a time; the default is
+   applied in the UI layer and remains editable. This keeps the required field
+   pre-filled so a pasted caption without a time still yields a submittable form.
 
 ### Edge Function contract (`parse-caption`)
 
@@ -391,6 +431,84 @@ interface ParsedCaption {
   description: string;
 }
 ```
+
+## Student verification design (Requirement 15)
+
+AI-assisted, staff-fallback verification that a user is a real student, surfaced
+as a "Verified student" badge. Mirrors the caption-import architecture: a Gemini
+call runs in a Supabase Edge Function (`verify-student`) that holds the key, with
+a dependency-free local fallback so the app still runs without a backend.
+
+### Flow
+
+1. In **Profile**, an `unverified`/`rejected` user picks a document type
+   (Student ID / COR / Class schedule) and selects an image, then submits.
+2. Client helper `src/lib/studentVerify.ts` → `verifyStudent({ imageBase64,
+   accountName, docType })`:
+   - If Supabase is configured, invoke the `verify-student` Edge Function
+     (multimodal Gemini Vision), which returns structured fields + confidence.
+   - Otherwise, a local fallback returns a non-committal result that never
+     auto-verifies and routes to staff.
+3. Decision (fully automated, no staff step):
+   - `pass` + high confidence + name consistent with the account → `verified`.
+   - Otherwise → `rejected`; the user can retry with a clearer document.
+   - If the AI service is unavailable → surface "temporarily unavailable"; do
+     not verify.
+
+### Edge Function contract (`verify-student`)
+
+- **Input (POST JSON):** `{ imageBase64, mimeType, accountName, docType }`.
+- **Behavior:** prompts Gemini Vision to return STRICT JSON:
+  `{ is_student_doc, doc_type, name, student_no, school, term_valid,
+  name_matches_account, confidence, verdict }`. The function normalizes output
+  and clamps `confidence` to `0..1`.
+- **Decision returned to client:** `verified` only when `verdict === "pass"`,
+  `confidence >= 0.75`, `is_student_doc`, and `name_matches_account`; else
+  `rejected` (AI-only, no staff queue).
+- **Secret:** `GEMINI_API_KEY` (same secret as `parse-caption`).
+- **CORS:** permissive headers like `parse-caption`.
+
+### AI limits (documented, by design)
+
+AI reads what is on the image; it does not authenticate the document against the
+registrar and can be fooled by tampering. The badge means "student, best-effort
+verified," not "identity legally confirmed." Item **release** remains gated by
+in-person staff custody checks, so a mis-verified badge is low-risk. No
+facial/biometric matching is performed.
+
+### Data model & privacy
+
+App-owned (not part of `AuthUser`, which comes from Google). Verification state is
+keyed by user id and persisted via `usePersistentState` (`foundit:v1:verifications`).
+The **raw image is never persisted** — only the decision, extracted fields, and
+confidence.
+
+```ts
+type VerificationStatus = "unverified" | "verified" | "rejected"; // AI-only, no "pending"
+
+interface StudentVerification {
+  user_id: string;
+  user_name: string;
+  status: VerificationStatus;
+  doc_type?: "student_id" | "cor" | "class_schedule";
+  extracted?: { name?: string; student_no?: string; school?: string; term_valid?: boolean };
+  confidence?: number;      // 0..1
+  ai_verdict?: "pass" | "fail";
+  submitted_at?: string;
+  decided_at?: string;
+  decided_by?: "ai" | "staff";
+}
+```
+
+### Component / handler changes
+
+| Component | Change |
+|---|---|
+| `App` | Add `verifications` persistent state (`Record<userId, StudentVerification>`); a submit handler that applies the AI decision directly; derive current user's status and `verifiedIds`. |
+| `VerificationBadge` (new) | Small check + "Verified student" label; shown next to names on posts, comments, and profile. |
+| `ProfileView` | Verification section: status + submit form (doc type + image); verified/rejected states (no pending). |
+| new `src/lib/studentVerify.ts` | `verifyStudent(...)` → Edge Function when configured; when unavailable, reports unavailable (no fallback approval). |
+| new `supabase/functions/verify-student` | Gemini Vision review; returns structured verdict; holds the key. |
 
 ## Target backend design (future phases)
 

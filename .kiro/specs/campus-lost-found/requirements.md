@@ -11,10 +11,11 @@ contact, and no listing of items the office does not physically hold yet.
 The current implementation (`src/App.tsx`) is a client-side React prototype.
 It starts with no seeded data — items, claims, and missing notices appear only
 as the signed-in user creates them during a session. Authentication uses Google
-sign-in (Requirement 10); all non-auth state lives in React (`useState`) rather
-than a backend and resets on reload until the Supabase data layer lands. The Supabase-backed
-architecture (Postgres, RLS, Auth, Storage, Edge Functions, PWA/offline) is the
-target for later phases and is captured in `design.md`.
+sign-in (Requirement 10); all non-auth state lives in React (`useState`) and is
+persisted to the browser's `localStorage` so it survives page reloads (see
+Requirement 14). The Supabase-backed architecture (Postgres, RLS, Auth, Storage,
+Edge Functions, PWA/offline) is the target for later phases and is captured in
+`design.md`.
 
 ### Personas
 - **Finder** — found something, wants to log it fast (ideally from a phone,
@@ -151,9 +152,14 @@ Share:
     the user can copy it manually, without error.
 
 Comment:
-11. WHEN a user activates comment THEN the system SHALL reveal a comment thread
-    for that item showing existing comments with author and relative time, plus
-    an input to add a comment.
+11. WHEN a user activates comment THEN the system SHALL open a modal comment
+    panel (a centered pop-up dialog with a dimmed backdrop, not an inline
+    slide-down) for that item. The panel SHALL render the full post at the top of
+    its scrollable area (poster, status, title, description, photo if any, and
+    found location/time), followed by the existing comments with author and
+    relative time, and a sticky composer input at the bottom to add a comment.
+    The panel SHALL be dismissible via a close control, a backdrop click, and the
+    Escape key.
 12. WHEN a user posts a comment THEN the system SHALL append it to the thread,
     attribute it to the signed-in user, and increment the displayed comment count.
 13. THE comment count on the card SHALL reflect the actual number of comments,
@@ -161,13 +167,18 @@ Comment:
 14. WHERE there are no comments yet THE thread SHALL show an empty prompt inviting
     the first comment.
 
-Reply:
-15. WHERE a comment exists THE system SHALL offer a "Reply" action on that comment.
-16. WHEN a user activates "Reply" on a comment THEN the system SHALL reveal an
-    input to reply to that specific comment.
-17. WHEN a user posts a reply THEN the system SHALL append it under its parent
-    comment, indented, attributed to the signed-in user with a relative time, and
-    SHALL include it in the comment count.
+Reply (branching / nested):
+15. WHERE any comment OR reply exists THE system SHALL offer a "Reply" action on
+    it, at any nesting depth.
+16. WHEN a user activates "Reply" on a comment or reply THEN the system SHALL
+    reveal an input to reply to that specific node.
+17. WHEN a user posts a reply THEN the system SHALL append it as a child of its
+    parent node, indented one level deeper than the parent, attributed to the
+    signed-in user with a relative time, and SHALL include it in the comment
+    count.
+18. THE reply tree SHALL support arbitrary depth (a reply to a reply to a reply,
+    and so on), each level rendered progressively indented so the branching
+    structure is visible.
 
 ### Requirement 5b — My Profile (posts + reposts)
 
@@ -250,9 +261,11 @@ that my identity is tied to the items I log and the claims I make without
 managing a separate password.
 
 #### Acceptance Criteria
-1. WHEN an unauthenticated user opens the app THEN the system SHALL present a
-   sign-in screen with a "Continue with Google" option and SHALL NOT expose the
-   catalog, finder form, claims, or staff views until sign-in completes.
+1. WHEN an unauthenticated user opens the app THEN the system SHALL present the
+   public landing page (Requirement 10a) and SHALL NOT expose the catalog,
+   finder form, claims, or staff views until sign-in completes. The landing page
+   SHALL provide a call to action that opens the sign-in screen with a "Continue
+   with Google" option.
 2. WHEN a user chooses "Continue with Google" THEN the system SHALL start the
    Google OAuth flow and, on success, establish an authenticated session.
 3. WHEN authentication succeeds THEN the system SHALL create or load a user
@@ -274,6 +287,27 @@ managing a separate password.
 > Note: Requirement 11 ("Role-based navigation (demo)") describes the interim
 > demo role selector. Once Requirement 10 is implemented, the demo selector is
 > retired and role is derived from the authenticated account (see criterion 8).
+
+### Requirement 10a — Public landing page
+
+**User story:** As a first-time visitor, I want a landing page that explains what
+FoundIt is and how it works, so that I understand the service and can decide to
+sign in.
+
+#### Acceptance Criteria
+1. WHEN an unauthenticated user opens the app THEN the system SHALL show a landing
+   page as the default view for signed-out users, before the sign-in screen.
+2. THE landing page SHALL present the FoundIt brand (wordmark), a short tagline,
+   and a brief explanation of the trusted lost-and-found workflow (log → staff
+   verify custody → owner claims privately → staff release).
+3. THE landing page SHALL provide a primary call to action ("Get started" /
+   "Sign in") that navigates to the sign-in screen.
+4. WHEN the user is on the sign-in screen THEN the system SHALL provide a way to
+   return to the landing page (a back control).
+5. THE landing page and sign-in screen SHALL NOT expose any authenticated views
+   or private data; only after successful sign-in SHALL the app views render.
+6. WHILE the user is signed in THE landing page SHALL NOT be shown; the app SHALL
+   render the authenticated experience directly.
 
 ### Requirement 11 — Role-based navigation (demo)
 
@@ -327,6 +361,9 @@ automatically, so that I don't have to re-type the details.
    system SHALL structure the text into the form fields it can infer: title,
    category (mapped to the app's existing category list), location found, and
    description.
+2a. WHERE the caption does not specify when the item was found THE system SHALL
+   default the "When did you find it?" field to today (the current date/time),
+   leaving it editable so the user can correct it before submitting.
 3. WHILE the caption is being processed THE system SHALL show a processing
    state and SHALL disable the action to prevent duplicate requests.
 4. WHEN structuring completes THEN the system SHALL populate the corresponding
@@ -341,6 +378,70 @@ automatically, so that I don't have to re-type the details.
    and SHALL surface a clear message if nothing could be extracted.
 8. THE AI provider key SHALL never be exposed in the client; the call SHALL be
    made through a backend function that holds the key as a secret.
+
+### Requirement 14 — Client-side persistence (prototype)
+
+**User story:** As a user of the prototype, I want the items, claims, notices, and
+my interactions to survive a page reload, so that I don't lose what I logged.
+
+#### Acceptance Criteria
+1. WHEN the user creates or changes application data (items, claims, missing
+   notices, comments, reposts, upvotes) THEN the system SHALL persist that data
+   to the browser's `localStorage`.
+2. WHEN the app loads THEN the system SHALL restore any previously persisted data
+   from `localStorage` so it is present after a reload.
+3. WHERE no persisted data exists THE app SHALL start from its default empty
+   collections.
+4. WHERE persisted data is malformed or cannot be parsed THE app SHALL fall back
+   to the default collections without crashing.
+5. THE persistence layer SHALL be scoped under a versioned storage key so that a
+   future Supabase data layer can supersede it without collision.
+6. THE persisted data SHALL be limited to the prototype's non-auth application
+   state; the authenticated session remains managed by the auth layer.
+
+### Requirement 15 — Student verification and verified badge (AI-assisted)
+
+**User story:** As a campus user, I want to verify that I'm a real student by
+submitting my student ID or Certificate of Registration (COR), so that a
+"Verified student" badge appears next to my name and others can trust me.
+
+> Note: This is a second AI assist (see Requirement 12), using Gemini Vision to
+> read the document. AI is a *signal*, not the sole authority: it does not detect
+> forgery or prove the document belongs to the submitter, so ambiguous cases fall
+> back to staff review, and staff can always override the AI decision. Facial or
+> biometric matching of a person against their ID is explicitly out of scope.
+
+#### Acceptance Criteria
+1. THE profile SHALL show the user's verification status: `unverified`,
+   `pending`, `verified`, or `rejected`, and — when unverified or rejected —
+   provide a way to submit a document.
+2. WHEN a user submits a document THEN the system SHALL let them pick a document
+   type (Student ID, Certificate of Registration, or Class schedule) and select
+   an image, then request an AI review.
+3. WHEN the document is reviewed THEN the system SHALL extract structured fields
+   (document type, name, student number, school, term validity) and return a
+   confidence score and a pass/fail verdict.
+4. WHERE the AI verdict is a pass with high confidence AND the extracted name is
+   consistent with the signed-in account name THE system SHALL mark the user
+   `verified`. The decision is fully automated; there is no staff review step.
+5. WHERE the AI verdict is low-confidence, fails, or the name does not match THE
+   system SHALL mark the submission `rejected` and let the user try again with a
+   clearer document.
+6. WHEN a user is `verified` THEN the system SHALL display a "Verified student"
+   badge next to their name on their posts, claims, comments, and profile.
+7. WHERE the AI service is unavailable or not configured THE system SHALL report
+   that verification is temporarily unavailable and SHALL NOT verify the user
+   (no fallback approval).
+8. THE AI provider key SHALL never be exposed in the client; the review SHALL run
+   in a backend function that holds the key as a secret (as with Requirement 12).
+9. THE prototype SHALL NOT persist the raw uploaded document image; it SHALL
+   store only the verification decision, the extracted fields, and the
+   confidence. (Encrypted document storage, access control, and a retention /
+   deletion policy are Supabase-phase concerns.)
+
+> Note: This is intentionally AI-only. Because item *release* is still gated by
+> in-person staff custody checks, a mis-verified badge is low-risk. There is no
+> `pending` state and no staff verification queue.
 
 ---
 
