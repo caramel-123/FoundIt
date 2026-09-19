@@ -164,6 +164,7 @@ interface CommentNode {
   author_name: string;
   message: string;
   created_at: string;
+  visibility?: "public" | "private"; // private = only post author + commenter; defaults public
   replies: CommentNode[];
 }
 
@@ -246,6 +247,11 @@ function formatDate(iso: string) {
 function countCommentNodes(nodes: CommentNode[] | undefined): number {
   if (!Array.isArray(nodes)) return 0;
   return nodes.reduce((n, node) => n + 1 + countCommentNodes(node?.replies), 0);
+}
+// Does the subtree rooted at `node` contain a node with the given id?
+function nodeContains(node: CommentNode, id: string): boolean {
+  if (node.id === id) return true;
+  return (node.replies ?? []).some(r => nodeContains(r, id));
 }
 // Current local date/time formatted for a <input type="datetime-local"> value
 // (YYYY-MM-DDTHH:mm, in the user's local timezone).
@@ -714,15 +720,24 @@ function PostActions({
 
 // ─── Post Detail (full-screen, Reddit-style) ───────────────────────────────────
 
-function PostDetail({ item, comments, onBack, onAddComment, onAddReply }: {
+function PostDetail({ item, comments, currentUserId, onBack, onAddComment, onAddReply }: {
   item: Item;
   comments: ItemComment[];
+  currentUserId: string;
   onBack: () => void;
-  onAddComment: (message: string) => void;
+  onAddComment: (message: string, visibility: "public" | "private") => void;
   onAddReply: (commentId: string, message: string) => void;
 }) {
   const [commentDraft, setCommentDraft] = useState("");
-  const count = countCommentNodes(comments);
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
+
+  // A private comment thread is visible only to the post's author and the
+  // thread's author. Filter the top-level list accordingly.
+  const isPostAuthor = currentUserId === item.finder_id;
+  const visibleComments = comments.filter(c =>
+    (c.visibility ?? "public") === "public" || isPostAuthor || c.author_id === currentUserId,
+  );
+  const count = countCommentNodes(visibleComments);
 
   // Close on Escape (back to the list).
   useEffect(() => {
@@ -734,7 +749,7 @@ function PostDetail({ item, comments, onBack, onAddComment, onAddReply }: {
   function submitComment(e: React.FormEvent) {
     e.preventDefault();
     if (!commentDraft.trim()) return;
-    onAddComment(commentDraft);
+    onAddComment(commentDraft, visibility);
     setCommentDraft("");
   }
 
@@ -785,11 +800,11 @@ function PostDetail({ item, comments, onBack, onAddComment, onAddReply }: {
             {count} {count === 1 ? "comment" : "comments"}
           </p>
 
-          {comments.length === 0 ? (
+          {visibleComments.length === 0 ? (
             <p className="text-sm py-6 text-center" style={{ color: "#9A7070" }}>No comments yet. Be the first to comment.</p>
           ) : (
             <div className="flex flex-col gap-3">
-              {comments.map(c => (
+              {visibleComments.map(c => (
                 <CommentThread key={c.id} node={c} depth={0} onAddReply={onAddReply} />
               ))}
             </div>
@@ -797,20 +812,37 @@ function PostDetail({ item, comments, onBack, onAddComment, onAddReply }: {
         </div>
       </div>
 
-      {/* Sticky composer */}
-      <form onSubmit={submitComment} className="flex items-center gap-2 p-4 shrink-0" style={{ borderTop: "1px solid #C1856D", background: "#FBF9D1" }}>
-        <div className="max-w-2xl mx-auto w-full flex items-center gap-2">
-          <input
-            type="text"
-            value={commentDraft}
-            onChange={e => setCommentDraft(e.target.value)}
-            placeholder="Write a comment…"
-            className="flex-1 px-4 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
-            style={{ background: "#FBF9D1", borderColor: "#C1856D", color: "#2C1414" }}
-          />
-          <button type="submit" disabled={!commentDraft.trim()} className="px-4 py-2 text-sm font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
-            Post
-          </button>
+      {/* Sticky composer with a Public/Private toggle */}
+      <form onSubmit={submitComment} className="flex flex-col gap-2 p-4 shrink-0" style={{ borderTop: "1px solid #C1856D", background: "#FBF9D1" }}>
+        <div className="max-w-2xl mx-auto w-full flex flex-col gap-2">
+          <div className="flex gap-1">
+            {(["public", "private"] as const).map(v => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setVisibility(v)}
+                className="px-3 py-1 text-xs font-semibold rounded-full transition-colors"
+                style={visibility === v
+                  ? { background: "#9A3F3F", color: "#FBF9D1" }
+                  : { background: "#F5ECEC", color: "#6B3A3A" }}
+              >
+                {v === "public" ? "Public" : "Private to author"}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={commentDraft}
+              onChange={e => setCommentDraft(e.target.value)}
+              placeholder={visibility === "private" ? "Private note to the author…" : "Write a comment…"}
+              className="flex-1 px-4 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
+              style={{ background: "#FBF9D1", borderColor: "#C1856D", color: "#2C1414" }}
+            />
+            <button type="submit" disabled={!commentDraft.trim()} className="px-4 py-2 text-sm font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+              Post
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -844,6 +876,9 @@ function CommentThread({ node, depth, onAddReply }: {
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{node.author_name}</span>
             {useIsVerified(node.author_id) && <VerificationBadge size={12} />}
+            {node.visibility === "private" && (
+              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>Private</span>
+            )}
             <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(node.created_at)}</span>
           </div>
           <p className="text-sm leading-snug mt-0.5 break-words" style={{ color: "#2C1414" }}>{node.message}</p>
@@ -1435,6 +1470,7 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
   onApprove: (responseId: string) => void;
   onReject: (responseId: string) => void;
 }) {
+  const openDetail = useOpenDetail();
   const isOwner = currentUserId === item.finder_id;
   const mode: "author" | "owner-answer" | "finder-review" =
     !report ? "author" : (isOwner && report.status === "awaiting_owner") ? "owner-answer" : "finder-review";
@@ -1487,8 +1523,13 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
 
       <div className="flex-1 overflow-y-auto scroll-area">
         <div className="max-w-lg mx-auto px-4 py-6">
-          {/* Item context */}
-          <div className="rounded-xl p-4 mb-6 flex items-start gap-3" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+          {/* Item context — click to open the actual post */}
+          <button
+            type="button"
+            onClick={() => { onClose(); openDetail(item); }}
+            className="w-full text-left rounded-xl p-4 mb-6 flex items-start gap-3 transition-shadow hover:shadow-md"
+            style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}
+          >
             {item.image_url && <img src={item.image_url} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />}
             <div className="min-w-0">
               <p className="font-semibold text-sm" style={{ color: "#2C1414" }}>{item.title}</p>
@@ -1497,8 +1538,9 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
                 {mode === "owner-answer" && "Someone found your item. Answer to prove it's yours."}
                 {mode === "finder-review" && "The owner's answers to your questions."}
               </p>
+              <p className="text-xs mt-1 font-medium" style={{ color: "#9A3F3F" }}>View post →</p>
             </div>
-          </div>
+          </button>
 
           {submitted ? (
             <div className="text-center py-12">
@@ -3357,7 +3399,7 @@ export default function App() {
     }
   }
 
-  function handleAddComment(itemId: string, message: string) {
+  function handleAddComment(itemId: string, message: string, visibility: "public" | "private" = "public") {
     if (!user || !message.trim()) return;
     const comment: ItemComment = {
       id: `cm${Date.now()}`,
@@ -3365,24 +3407,28 @@ export default function App() {
       author_name: user.name,
       message: message.trim(),
       created_at: new Date().toISOString(),
+      visibility,
       replies: [],
     };
     setComments(prev => ({ ...prev, [itemId]: [...(prev[itemId] ?? []), comment] }));
     if (isDbEnabled) insertComment({
       id: comment.id, post_id: itemId, parent_id: null,
       author_id: comment.author_id, author_name: comment.author_name,
-      message: comment.message, created_at: comment.created_at,
+      message: comment.message, visibility, created_at: comment.created_at,
     });
   }
 
   function handleAddReply(itemId: string, parentId: string, message: string) {
     if (!user || !message.trim()) return;
+    // A reply inherits the visibility of its top-level thread.
+    const threadVisibility = (comments[itemId] ?? []).find(c => c.id === parentId || nodeContains(c, parentId))?.visibility ?? "public";
     const reply: CommentNode = {
       id: `rp${Date.now()}`,
       author_id: user.id,
       author_name: user.name,
       message: message.trim(),
       created_at: new Date().toISOString(),
+      visibility: threadVisibility,
       replies: [],
     };
     // Immutably append `reply` under the node whose id === parentId, at any depth.
@@ -3396,7 +3442,7 @@ export default function App() {
     if (isDbEnabled) insertComment({
       id: reply.id, post_id: itemId, parent_id: parentId,
       author_id: reply.author_id, author_name: reply.author_name,
-      message: reply.message, created_at: reply.created_at,
+      message: reply.message, visibility: threadVisibility, created_at: reply.created_at,
     });
   }
 
@@ -3664,8 +3710,9 @@ export default function App() {
         <PostDetail
           item={activeDetailItem}
           comments={comments[activeDetailItem.id] ?? []}
+          currentUserId={user.id}
           onBack={() => setDetailItem(null)}
-          onAddComment={msg => handleAddComment(activeDetailItem.id, msg)}
+          onAddComment={(msg, visibility) => handleAddComment(activeDetailItem.id, msg, visibility)}
           onAddReply={(commentId, msg) => handleAddReply(activeDetailItem.id, commentId, msg)}
         />
       )}

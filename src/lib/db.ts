@@ -127,6 +127,7 @@ export interface DbCommentNode {
   author_name: string;
   message: string;
   created_at: string;
+  visibility?: "public" | "private";
   replies: DbCommentNode[];
 }
 
@@ -137,6 +138,7 @@ interface CommentRow {
   author_id: string;
   author_name: string | null;
   message: string;
+  visibility: string | null;
   created_at: string;
 }
 
@@ -150,6 +152,7 @@ function rowsToCommentMap(rows: CommentRow[]): Record<string, DbCommentNode[]> {
       author_name: r.author_name ?? "",
       message: r.message,
       created_at: r.created_at,
+      visibility: (r.visibility as "public" | "private") ?? "public",
       replies: [],
     });
   }
@@ -177,12 +180,14 @@ export async function listComments(): Promise<Record<string, DbCommentNode[]>> {
 export async function insertComment(input: {
   id: string; post_id: string; parent_id: string | null;
   author_id: string; author_name: string; message: string; created_at: string;
+  visibility?: "public" | "private";
 }): Promise<boolean> {
   if (!isDbEnabled) return false;
   const { error } = await supabase!.from("comments").insert({
     id: input.id, post_id: input.post_id, parent_id: input.parent_id,
     author_id: input.author_id, author_name: input.author_name,
-    message: input.message, created_at: input.created_at,
+    message: input.message, visibility: input.visibility ?? "public",
+    created_at: input.created_at,
   });
   if (error) { console.warn("insertComment failed:", error.message); return false; }
   return true;

@@ -177,6 +177,12 @@ Comment:
     to add a comment. It SHALL provide a Back control to return to the previous
     view. Clicking the action buttons (upvote/repost/share/claim) SHALL NOT
     navigate into the detail view.
+11a. THE comment composer SHALL let the commenter choose **Public** or
+    **Private**. A public comment is visible to everyone. A **private** comment
+    is a direct note to the post's author, visible only to the post author and
+    the commenter (and hidden from all other users). A reply inherits the
+    visibility of the thread it belongs to. The comment count SHALL reflect only
+    the comments visible to the current user; private comments SHALL be labeled.
 12. WHEN a user posts a comment THEN the system SHALL append it to the thread,
     attribute it to the signed-in user, and increment the displayed comment count.
 13. THE comment count on the card SHALL reflect the actual number of comments,
