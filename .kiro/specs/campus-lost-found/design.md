@@ -58,7 +58,7 @@ persisted here; it stays owned by `src/lib/auth.ts`.
 | `StatusBadge` | Renders the item status as an icon with an accessible label/tooltip. |
 | `Avatar` | Deterministic colored initials avatar keyed on user id. |
 | `ClaimModal` | Owner submits identifying details for a claim. |
-| `FinderForm` | Log a found item; simulates EXIF stripping on photo select. |
+| `FinderForm` | "Log a Found/Lost Item": a **Found / Lost** mode toggle. Found mode creates a `pending_intake` item (photo, optional ownership challenge). Lost mode collects the same fields (title, category, location/time lost, description, optional staff note, optional photo) EXCEPT the ownership challenge, and creates a missing notice via `onPostNotice`; no drop-off/intake copy. |
 | `MissingNotices` | Passive missing-item bulletin with a post form. |
 | `OwnerClaimsView` | Owner's claims list and per-claim message thread. |
 | `StaffDashboard` | Pending-intake queue and claims-review queue with status controls and reply thread. |
@@ -85,6 +85,23 @@ interface Item {
   comments?: number;
   reposts?: number;
   created_at: string;
+  challenge?: ChallengeQuestion[]; // optional Ownership Challenge (Requirement 16)
+}
+
+interface ChallengeQuestion {
+  id: string;
+  prompt: string; // short-text question authored by the finder
+}
+
+interface ChallengeResponse {
+  id: string;
+  item_id: string;
+  responder_id: string;
+  responder_name: string;
+  answers: { question_id: string; prompt: string; answer: string }[];
+  note?: string; // optional note to the finder
+  status: "pending" | "approved" | "rejected" | "escalated";
+  created_at: string;
 }
 
 interface Claim {
@@ -109,9 +126,13 @@ interface ClaimMessage {
 interface MissingNotice {
   id: string;
   owner_id: string;
+  title?: string;
+  category?: string;
   description: string;
   location_lost: string;
   time_lost: string;
+  note?: string;       // optional private note to staff
+  image_url?: string;  // optional photo
   created_at: string;
 }
 ```
@@ -509,6 +530,54 @@ interface StudentVerification {
 | `ProfileView` | Verification section: status + submit form (doc type + image); verified/rejected states (no pending). |
 | new `src/lib/studentVerify.ts` | `verifyStudent(...)` → Edge Function when configured; when unavailable, reports unavailable (no fallback approval). |
 | new `supabase/functions/verify-student` | Gemini Vision review; returns structured verdict; holds the key. |
+
+## Ownership Challenge design (Requirement 16)
+
+Lets a finder attach verification questions to a found item; a claimant answers
+them via **"Prove it's yours"**; the finder reviews responses on their own post
+and decides, or escalates to staff. The finder is the primary decider, with an
+explicit escalation path into the existing staff claim flow.
+
+### Flow
+
+1. **Author (FinderForm):** an optional "Ownership challenge" section lets the
+   finder add/remove short-text questions. Saved as `item.challenge:
+   ChallengeQuestion[]` (omitted/empty ⇒ no challenge).
+2. **Answer (item card → "Prove it's yours"):** when `item.challenge` is
+   non-empty, the item's claim action is labeled "Prove it's yours" and opens a
+   `ChallengeModal` rendering one short-text input per question plus an optional
+   **note to the finder**. Submitting creates a `ChallengeResponse` (status
+   `pending`). When there is no challenge, the existing free-text `ClaimModal`
+   (Requirement 6) is used unchanged.
+3. **Review (Profile → Your posts):** the finder's own item cards show a
+   **Responses** control opening a `ChallengeResponsesModal`: each responder
+   (name + verified badge), their answer per question, their note, and the
+   response count. Per response the finder can **Approve**, **Reject**, or
+   **Send to staff**.
+4. **Decide / escalate:** Approve → response `approved` (finder's decision;
+   physical release still happens at the office, so no status auto-change).
+   Reject → `rejected`. Send to staff → response `escalated` AND a `Claim`
+   (Requirement 6) is created from the response's answers (joined into
+   `identifying_details`) with status `pending_review`, entering the normal staff
+   review thread.
+
+### Data & visibility
+
+`ChallengeResponse[]` is app state persisted via `usePersistentState`
+(`foundit:v1:challengeResponses`). Responses are shown only to the item's finder
+(and staff via an escalated claim) — never to other users, since answers can
+reveal identifying info and a public list could be gamed.
+
+### Component / handler changes
+
+| Component | Change |
+|---|---|
+| `FinderForm` | Optional "Ownership challenge" question builder (add/remove short-text prompts); include `challenge` on the submitted item. |
+| `PostActions` / item card | If `item.challenge?.length`, show "Prove it's yours" → `ChallengeModal`; else existing claim action. |
+| `ChallengeModal` (new) | Renders the finder's questions as short-text inputs + optional note; submits a `ChallengeResponse`. |
+| `ChallengeResponsesModal` (new) | Finder-only responses/analytics for their item; Approve / Reject / Send to staff per response. |
+| `ProfileView` | "Responses (N)" control on the finder's own posts opens `ChallengeResponsesModal`. |
+| `App` | `challengeResponses` state + handlers: submit response, finder approve/reject, escalate-to-staff (creates a `Claim`). |
 
 ## Target backend design (future phases)
 

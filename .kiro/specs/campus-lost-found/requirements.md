@@ -35,13 +35,26 @@ Edge Functions, PWA/offline) is the target for later phases and is captured in
 optional photo, so that I can hand it to the office and have it tracked.
 
 #### Acceptance Criteria
-1. WHEN a finder opens the "Log Item" view THEN the system SHALL present a form
-   with fields for title, category, location found, time found, description, a
-   private note to staff, and a photo.
-2. WHEN a finder submits the form THEN the system SHALL require title, category,
-   location found, time found, and description before accepting the submission.
-3. WHEN a finder submits a valid form THEN the system SHALL create an item with
-   status `pending_intake`.
+0. THE "Log Item" view SHALL be titled "Log a Found/Lost Item" and SHALL offer a
+   **Found / Lost** mode toggle at the top. "Found" is the default and drives the
+   found-item flow below. "Lost" switches the form to post a missing notice
+   (Requirement 9) that collects the SAME fields as the found form — title,
+   category, location lost, time lost, description, an optional private note to
+   staff, and an optional photo — EXCEPT the ownership challenge (which does not
+   apply to a lost post). It SHALL NOT show drop-off/intake instructions, since a
+   lost post is a passive notice, not an item the office holds.
+1. WHEN a finder opens the "Log Item" view in **Found** mode THEN the system SHALL
+   present a form with fields for title, category, location found, time found,
+   description, a private note to staff, an optional ownership challenge, and a
+   photo.
+2. WHEN a finder submits the Found form THEN the system SHALL require title,
+   category, location found, time found, and description before accepting the
+   submission.
+3. WHEN a finder submits a valid Found form THEN the system SHALL create an item
+   with status `pending_intake`.
+3a. WHEN the user submits the form in **Lost** mode THEN the system SHALL create a
+   missing notice (Requirement 9) and confirm the post, without entering the
+   found-item state machine.
 4. WHEN a photo is selected THEN the system SHALL show a processing state
    indicating location metadata (EXIF/GPS) is being stripped before the file is
    accepted.
@@ -213,6 +226,45 @@ details, so that staff can verify it is mine without exposing me publicly.
 4. THE claim's identifying details SHALL be visible only to the owner and staff.
 5. THE system SHALL communicate a limit of 3 claims per rolling 24 hours per user.
 
+### Requirement 16 — Ownership Challenge ("Prove it's yours")
+
+**User story:** As a finder, I want to attach my own verification questions to a
+found item (e.g. "What's the serial number?", "What color is it?"), so that a
+person claiming it must prove ownership by answering, and I can review who
+answered and decide — or hand the decision to staff.
+
+#### Acceptance Criteria
+1. WHEN logging a found item THE system SHALL let the finder optionally add an
+   **Ownership Challenge**: an ordered list of short-text questions (each a free
+   prompt), with add/remove controls. The challenge is optional.
+2. EVERY found item card SHALL show a **"Prove it's yours"** action (for non-staff
+   users). Activating it opens the prove-ownership form:
+   - WHERE the item HAS an Ownership Challenge, the form SHALL render the finder's
+     questions with a short-text answer field per question, plus an optional
+     free-text **note to the finder**.
+   - WHERE the item has NO Ownership Challenge, the form SHALL show only the
+     optional **note to the finder** (no questions).
+3. WHEN a claimant submits their answers THEN the system SHALL record a
+   **challenge response** attributed to the signed-in user (name + answers +
+   optional note + timestamp) with status `pending`, and SHALL confirm
+   submission.
+4. THE finder SHALL see the responses to their own item's challenge on their post
+   (in Profile → Your posts): a responses view listing each responder (name, and
+   verified badge if applicable), their answer to each question, their optional
+   note, and the total response count. Responses SHALL be visible only to the
+   finder and staff, not to other users.
+5. FOR each response THE finder SHALL be able to **Approve** (this is the owner),
+   **Reject**, or **Send to staff** (escalate to the normal staff claim review).
+6. WHEN the finder approves a response THEN the system SHALL mark that response
+   `approved`; approval is the finder's decision and does not itself release the
+   item — physical release still happens at the office.
+7. WHEN the finder chooses "Send to staff" THEN the system SHALL create a claim
+   (Requirement 6) carrying the response's answers as its identifying details,
+   with status `pending_review`, so staff can make the final decision.
+8. WHERE an item has no Ownership Challenge, "Prove it's yours" still applies but
+   collects only the note; the response has no answers. The finder reviews and
+   decides (or sends to staff) the same way.
+
 ### Requirement 7 — Private claim thread
 
 **User story:** As an owner and as staff, I want a private message thread scoped
@@ -247,8 +299,9 @@ so that I can process the office workflow efficiently.
 that there is a record even if the item has not been turned in.
 
 #### Acceptance Criteria
-1. THE system SHALL allow an owner to post a missing notice with description,
-   location lost, and time lost.
+1. THE system SHALL allow an owner to post a missing notice with title, category,
+   description, location lost, time lost, an optional private note to staff, and
+   an optional photo.
 2. THE missing-notice feature SHALL have no state machine, claim, or message
    thread attached.
 3. WHEN a missing notice is posted THEN the system SHALL display it in the missing

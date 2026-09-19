@@ -251,6 +251,44 @@ today; unchecked tasks are remaining work.
     rejected / unavailable messages. No staff queue.
   - _Requirements: 15 (1, 2, 5, 6, 7)_
 
+## Phase 2.10 — Ownership Challenge ("Prove it's yours", Requirement 16)
+
+- [ ] 17a. Data model + App state/handlers
+  - `ChallengeQuestion` on `Item.challenge?`; `ChallengeResponse` type;
+    `challengeResponses` persistent state. Handlers: submit response, finder
+    approve/reject, send-to-staff (creates a `Claim` from answers).
+  - _Requirements: 16 (1, 3, 5, 6, 7)_
+
+- [ ] 17b. FinderForm challenge builder
+  - Optional "Ownership challenge" section: add/remove short-text questions;
+    attach `challenge` to the submitted item.
+  - _Requirements: 16 (1)_
+
+- [ ] 17c. "Prove it's yours" action + `ChallengeModal`
+  - Item card action becomes "Prove it's yours" when `item.challenge` exists;
+    modal renders questions as short-text inputs + optional note; submit creates
+    a response. Falls back to `ClaimModal` when no challenge.
+  - _Requirements: 16 (2, 3, 8)_
+
+- [ ] 17d. Finder responses/analytics on own post
+  - `ChallengeResponsesModal` opened from a "Responses (N)" control on the
+    finder's own posts (Profile → Your posts): responder + answers + note +
+    count; Approve / Reject / Send to staff.
+  - _Requirements: 16 (4, 5, 6, 7)_
+
+## Phase 2.11 — Found/Lost toggle on the Log form (Requirement 1.0/3a)
+
+- [ ] 18a. FinderForm Found/Lost mode toggle
+  - Title "Log a Found/Lost Item"; Found/Lost toggle. Found = existing found-item
+    flow. Lost = missing-notice fields (description, location lost, time lost,
+    optional photo); hide challenge, staff note, drop-off copy.
+  - _Requirements: 1 (0, 1, 2, 3, 3a), 9_
+
+- [ ] 18b. Route submission + wire onPostNotice
+  - Found → onSubmit item (unchanged); Lost → onPostNotice(missing notice, with
+    optional image_url). Add `image_url?` to MissingNotice.
+  - _Requirements: 1 (3, 3a), 9_
+
 ## Phase 3 — Supabase backend
 
 - [ ] 13. Provision schema, enums, and indexes (items, claims, claim_messages,
