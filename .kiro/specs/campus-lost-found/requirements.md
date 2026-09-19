@@ -111,6 +111,12 @@ holding, so that I can find my lost item without a noisy social feed.
    drive the catalog filtering; it SHALL display the typed text clearly.
 8. Logging a found item is initiated from the header "+" button (Requirement
    11a); the catalog SHALL NOT show a separate composer prompt.
+9. THE catalog SHALL offer a view mode toggle between **Feed** (standard post list)
+   and **Community** (a photo-centric grid view). The Community view SHALL
+   prioritize item photos in a responsive gallery with minimal overlay (title,
+   Lost/Found tag, location) to help owners rapidly scan visually for their lost
+   belongings. Clicking any item in Community view SHALL open its full post detail.
+
 
 ### Requirement 4 — Item card presentation
 
@@ -208,6 +214,11 @@ Reply (branching / nested):
 18. THE reply tree SHALL support arbitrary depth (a reply to a reply to a reply,
     and so on), each level rendered progressively indented so the branching
     structure is visible.
+19. THE post detail view SHALL render the full item's action row (upvote, repost,
+    share). Where the item is eligible for action ("I found it" or "I lost it"),
+    the action form SHALL be rendered inline directly below the post body and above
+    the comment thread, so the user can see and reference the full post details
+    while answering or challenging.
 
 ### Requirement 5b — My Profile (posts + reposts)
 
@@ -226,6 +237,23 @@ reposted in one place.
 5. THE Profile SHALL provide a sign-out control.
 6. WHEN the user removes a repost from the profile THEN it SHALL disappear from
    the profile and the catalog feed and the item's repost count SHALL decrement.
+
+### Requirement 5c — Public Author Profile
+
+**User story:** As a user, I want to click any poster or commenter's avatar, so
+that I can view their public profile and see what else they have posted.
+
+#### Acceptance Criteria
+1. WHEN a user clicks on an avatar or author name on an item card, post detail,
+   repost card, or comment thread THEN the system SHALL open a public author
+   profile view.
+2. THE author profile view SHALL display the author's avatar, display name,
+   verified student status badge (if verified), and total count of public posts.
+3. THE author profile view SHALL display a chronological list of all public items
+   logged by that user.
+4. THE author profile view SHALL provide a Back control to return to the previous
+   view without losing place.
+
 
 ### Requirement 6 — Submit a claim (Owner)
 

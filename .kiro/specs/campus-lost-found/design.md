@@ -53,15 +53,19 @@ persisted here; it stays owned by `src/lib/auth.ts`.
 |---|---|
 | `App` | Owns all state (items, claims, notices, role, view, upvotes) and handlers; renders `Nav` + the active view; hosts the claim modal. |
 | `Nav` | Sticky Reddit-style header: hamburger button (far left) toggling a left sidebar drawer that holds the role-filtered nav destinations (highlighting the current one); brand; centered search field; right side a "+" create icon (opens Log Item) and the profile avatar (opens profile); offline banner. No chat/bell, no top nav row. Search state is lifted to `App` and passed in. |
-| `CatalogView` | Public catalog with search field + category filter; renders `ItemCard` list and an empty state. |
+| `CatalogView` | Public catalog with search field + category filter; supports "Feed" (post list) and "Community" (photo-centric grid) view modes, and renders an empty state with filter clearing. |
 | `ItemCard` | Reddit-style post: avatar + poster name + relative time + status icon, title, description, location, action row (upvote/comment/repost/share) and bottom-right claim action. |
+| `PostDetail` | Full-screen post detail view hosting full post content, action row, inline `OwnershipActionSection` ("I found it" / "I lost it"), and recursive comment thread. |
+| `OwnershipActionSection` | Adaptive inline section rendered between post and comments inside `PostDetail` for submitting/answering ownership challenges and found reports. |
+| `PublicProfileView` | Public profile for any user displaying avatar, name, student verification badge, and list of public items. |
 | `StatusBadge` | Renders the item status as an icon with an accessible label/tooltip. |
-| `Avatar` | Deterministic colored initials avatar keyed on user id. |
+| `Avatar` | Deterministic colored initials avatar keyed on user id, clickable to open author profile. |
 | `ClaimModal` | Owner submits identifying details for a claim. |
 | `FinderForm` | "Log a Found/Lost Item": a **Found / Lost** mode toggle. Found mode creates a `pending_intake` item (photo, optional ownership challenge). Lost mode collects the same fields (title, category, location/time lost, description, optional staff note, optional photo) EXCEPT the ownership challenge, and creates a missing notice via `onPostNotice`; no drop-off/intake copy. |
 | `MissingNotices` | Passive missing-item bulletin with a post form. |
 | `OwnerClaimsView` | Owner's claims list and per-claim message thread. |
 | `StaffDashboard` | Pending-intake queue and claims-review queue with status controls and reply thread. |
+
 
 ### Data types (current)
 

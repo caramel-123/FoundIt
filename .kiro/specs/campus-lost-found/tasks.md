@@ -289,7 +289,30 @@ today; unchecked tasks are remaining work.
     optional image_url). Add `image_url?` to MissingNotice.
   - _Requirements: 1 (3, 3a), 9_
 
+## Phase 2.12 — Community photo view, author profile, inline post actions & polish
+
+- [ ] 21a. Community photo-centric catalog view toggle (Feed / Community)
+  - Layout toggle in CatalogView header; responsive image grid for photo posts
+    with minimal overlay (title, Lost/Found tag, location); click opens PostDetail.
+  - _Requirements: 3.9_
+
+- [ ] 21b. Public author profile (`PublicProfileView` + `OpenAuthorContext`)
+  - Clicking any author avatar or name opens PublicProfileView with their avatar,
+    name, student verification badge, post count, and list of public posts.
+  - _Requirements: 5c_
+
+- [ ] 21c. Inline action section inside `PostDetail` ("I found it" / "I lost it")
+  - Embed the challenge/lost report authoring and answering forms inline within
+    PostDetail directly between the post body and comment thread.
+  - _Requirements: 5 (19), 16 (2), 17 (2)_
+
+- [ ] 21d. Action row button styling + modal header polish + PWA logo text
+  - Share button transparent outline; modal headers "I lost it" / "I found it";
+    clickable item card in ChallengeModal; "Foundit" typography in icon.svg.
+  - _Requirements: 4 (4), 16, 17, Future 6_
+
 ## Phase 3.0 — Shared data via Supabase (incremental; start with items)
+
 
 Goal: all users see each other's posts by moving data from per-browser
 localStorage into shared Postgres, one slice at a time, with a localStorage

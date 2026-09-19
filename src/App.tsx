@@ -398,8 +398,8 @@ function useIsVerified(userId: string): boolean {
 
 // Opens the full-screen post detail view (Reddit-style) for an item, without
 // prop-drilling through the catalog → card → actions chain.
-const OpenDetailContext = createContext<(item: Item) => void>(() => {});
-function useOpenDetail(): (item: Item) => void {
+const OpenDetailContext = createContext<(item: Item, actionOpen?: boolean) => void>(() => {});
+function useOpenDetail(): (item: Item, actionOpen?: boolean) => void {
   return useContext(OpenDetailContext);
 }
 
@@ -709,7 +709,7 @@ function PostActions({
         <button
           onClick={handleShareClick}
           className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
-          style={{ background: "#F5ECEC", color: "#6B3A3A" }}
+          style={{ background: "transparent", border: "1px solid #C1856D", color: "#6B3A3A" }}
           aria-label="Share"
           title="Share"
         >
@@ -724,9 +724,362 @@ function PostActions({
   );
 }
 
+// ─── Inline Ownership Action Section (inside PostDetail) ────────────────────────
+
+function OwnershipActionSection({
+  item,
+  currentUserId,
+  responses = [],
+  onSubmitChallengeResponse,
+  onSubmitFoundReport,
+  onOwnerAnswer,
+  onApprove,
+  onReject,
+  initialOpen = false,
+}: {
+  item: Item;
+  currentUserId: string;
+  responses?: ChallengeResponse[];
+  onSubmitChallengeResponse?: (itemId: string, answers: ChallengeAnswer[], note: string) => void;
+  onSubmitFoundReport?: (item: Item, questions: ChallengeQuestion[], note: string) => void;
+  onOwnerAnswer?: (responseId: string, answers: ChallengeAnswer[], ownerNote: string) => void;
+  onApprove?: (responseId: string) => void;
+  onReject?: (responseId: string) => void;
+  initialOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(initialOpen);
+  const [qs, setQs] = useState<ChallengeQuestion[]>([]);
+  const [note, setNote] = useState("");
+  const [challengeAnswers, setChallengeAnswers] = useState<Record<string, string>>({});
+  const [claimantNote, setClaimantNote] = useState("");
+  const [ownerAnswers, setOwnerAnswers] = useState<Record<string, string>>({});
+  const [ownerReplyNote, setOwnerReplyNote] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const isPoster = currentUserId === item.finder_id;
+  const isLost = item.kind === "lost";
+
+  const myResponse = responses.find(r => r.item_id === item.id && r.responder_id === currentUserId);
+  const reportsForOwner = isLost && isPoster
+    ? responses.filter(r => r.item_id === item.id && r.kind === "lost")
+    : [];
+
+  if (item.status === "released") return null;
+
+  // Case 1: Lost post
+  if (isLost) {
+    if (isPoster) {
+      if (reportsForOwner.length === 0) return null;
+      return (
+        <div className="mt-4 p-4 rounded-xl" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+          <h3 className="font-semibold text-sm mb-2" style={{ color: "#2C1414" }}>
+            Reports from finders ({reportsForOwner.length})
+          </h3>
+          <div className="flex flex-col gap-3">
+            {reportsForOwner.map(report => (
+              <div key={report.id} className="p-3 rounded-lg bg-[#FBF9D1] border border-[#C1856D]/60">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{report.responder_name} found your item</span>
+                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
+                    {report.status.replace("_", " ")}
+                  </span>
+                </div>
+                {report.note && <p className="text-xs mb-2" style={{ color: "#6B3A3A" }}>Finder note: {report.note}</p>}
+                {report.status === "awaiting_owner" && (
+                  <form
+                    onSubmit={e => {
+                      e.preventDefault();
+                      const filled = report.answers.map(a => ({ ...a, answer: (ownerAnswers[a.question_id] ?? "").trim() }));
+                      if (filled.some(a => !a.answer)) return;
+                      onOwnerAnswer?.(report.id, filled, ownerReplyNote);
+                    }}
+                    className="flex flex-col gap-2 mt-2"
+                  >
+                    {report.answers.map((a, i) => (
+                      <div key={a.question_id}>
+                        <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</label>
+                        <input
+                          type="text"
+                          required
+                          value={ownerAnswers[a.question_id] ?? ""}
+                          onChange={ev => setOwnerAnswers(prev => ({ ...prev, [a.question_id]: ev.target.value }))}
+                          placeholder="Your answer"
+                          className={inputCls}
+                        />
+                      </div>
+                    ))}
+                    <div>
+                      <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>Note to finder (optional)</label>
+                      <input
+                        type="text"
+                        value={ownerReplyNote}
+                        onChange={ev => setOwnerReplyNote(ev.target.value)}
+                        placeholder="e.g. Thanks! When can I pick it up?"
+                        className={inputCls}
+                      />
+                    </div>
+                    <button type="submit" className={btnPrimary + " mt-1 self-start text-xs py-2"}>
+                      Submit answers
+                    </button>
+                  </form>
+                )}
+                {report.status === "answered" && (
+                  <p className="text-xs font-medium mt-1" style={{ color: "#9A7070" }}>
+                    Answers submitted. Waiting for {report.responder_name} to review.
+                  </p>
+                )}
+                {report.status === "approved" && (
+                  <p className="text-xs font-semibold mt-1" style={{ color: "#9A3F3F" }}>
+                    {report.responder_name} approved you! They will arrange the return.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (myResponse) {
+      return (
+        <div className="mt-4 p-4 rounded-xl" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>Your found report</h3>
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#FBF9D1", color: "#9A3F3F" }}>
+              {myResponse.status.replace("_", " ")}
+            </span>
+          </div>
+          {myResponse.status === "awaiting_owner" && (
+            <p className="text-xs" style={{ color: "#6B3A3A" }}>Waiting for the owner to answer your verification questions…</p>
+          )}
+          {myResponse.status === "answered" && (
+            <div className="flex flex-col gap-2 mt-2">
+              <p className="text-xs font-medium" style={{ color: "#2C1414" }}>Owner submitted answers:</p>
+              {myResponse.answers.map((a, i) => (
+                <div key={a.question_id} className="text-xs p-2 rounded bg-[#FBF9D1]">
+                  <p className="font-semibold text-[#2C1414]">{i + 1}. {a.prompt}</p>
+                  <p className="text-[#6B3A3A] mt-0.5">{a.answer}</p>
+                </div>
+              ))}
+              {myResponse.owner_note && <p className="text-xs text-[#6B3A3A]">Owner note: {myResponse.owner_note}</p>}
+              <div className="flex gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => onApprove?.(myResponse.id)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg"
+                  style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+                >
+                  Approve owner
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onReject?.(myResponse.id)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#C1856D]"
+                  style={{ color: "#9A3F3F", background: "transparent" }}
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          )}
+          {myResponse.status === "approved" && (
+            <p className="text-xs font-semibold" style={{ color: "#9A3F3F" }}>You approved this owner.</p>
+          )}
+          {myResponse.status === "rejected" && (
+            <p className="text-xs font-semibold" style={{ color: "#6B3A3A" }}>You rejected this claim.</p>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-4 p-4 rounded-xl" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+        {!isOpen ? (
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>Did you find this item?</h3>
+              <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>Ask questions to verify the real owner.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsOpen(true)}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors"
+              style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+            >
+              I found it
+            </button>
+          </div>
+        ) : (
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              onSubmitFoundReport?.(item, qs, note);
+              setSubmitted(true);
+            }}
+            className="flex flex-col gap-3"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>I found it — challenge owner</h3>
+              <button type="button" onClick={() => setIsOpen(false)} className="text-xs text-[#9A7070] hover:underline">Cancel</button>
+            </div>
+            {submitted ? (
+              <p className="text-xs font-medium text-[#9A3F3F] py-2">Report submitted! The owner will be notified to answer.</p>
+            ) : (
+              <>
+                <p className="text-xs" style={{ color: "#6B3A3A" }}>Add questions only the real owner can answer:</p>
+                {qs.map((q, i) => (
+                  <div key={q.id} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder={`Question ${i + 1} (e.g. What color is the keychain?)`}
+                      value={q.prompt}
+                      onChange={ev => setQs(list => list.map(x => x.id === q.id ? { ...x, prompt: ev.target.value } : x))}
+                      className={inputCls + " text-xs"}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setQs(list => list.filter(x => x.id !== q.id))}
+                      className="text-xs text-[#9A3F3F] p-1"
+                    >
+                      <IconX />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setQs(list => [...list, { id: `q${Date.now()}${list.length}`, prompt: "" }])}
+                  className="text-xs font-semibold self-start hover:underline"
+                  style={{ color: "#9A3F3F" }}
+                >
+                  + Add question
+                </button>
+                <textarea
+                  rows={2}
+                  placeholder="Note to owner (e.g. I turned it in to Room 101)..."
+                  value={note}
+                  onChange={ev => setNote(ev.target.value)}
+                  className={inputCls + " text-xs resize-none"}
+                />
+                <button type="submit" className={btnPrimary + " self-start text-xs py-2"}>
+                  Send report to owner
+                </button>
+              </>
+            )}
+          </form>
+        )}
+      </div>
+    );
+  }
+
+  // Case 2: Found post
+  if (!isPoster) {
+    if (myResponse) {
+      return (
+        <div className="mt-4 p-4 rounded-xl" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>Your ownership claim</h3>
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#FBF9D1", color: "#9A3F3F" }}>
+              {myResponse.status}
+            </span>
+          </div>
+          <p className="text-xs" style={{ color: "#6B3A3A" }}>
+            {myResponse.status === "approved" ? "The finder approved your claim! Pick up at the admin office." : "Your claim was submitted and is under review."}
+          </p>
+        </div>
+      );
+    }
+
+    const questions = item.challenge ?? [];
+    const hasQuestions = questions.length > 0;
+
+    return (
+      <div className="mt-4 p-4 rounded-xl" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+        {!isOpen ? (
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>Is this your item?</h3>
+              <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>Prove ownership to the finder.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsOpen(true)}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors"
+              style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+            >
+              I lost it
+            </button>
+          </div>
+        ) : (
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              const payload: ChallengeAnswer[] = questions.map(q => ({
+                question_id: q.id,
+                prompt: q.prompt,
+                answer: (challengeAnswers[q.id] ?? "").trim(),
+              }));
+              onSubmitChallengeResponse?.(item.id, payload, claimantNote);
+              setSubmitted(true);
+            }}
+            className="flex flex-col gap-3"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>I lost it — prove ownership</h3>
+              <button type="button" onClick={() => setIsOpen(false)} className="text-xs text-[#9A7070] hover:underline">Cancel</button>
+            </div>
+            {submitted ? (
+              <p className="text-xs font-medium text-[#9A3F3F] py-2">Claim submitted! The finder will review your answers.</p>
+            ) : (
+              <>
+                {questions.map((q, i) => (
+                  <div key={q.id}>
+                    <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>{i + 1}. {q.prompt} *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Your answer"
+                      value={challengeAnswers[q.id] ?? ""}
+                      onChange={ev => setChallengeAnswers(prev => ({ ...prev, [q.id]: ev.target.value }))}
+                      className={inputCls + " text-xs"}
+                    />
+                  </div>
+                ))}
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>
+                    {hasQuestions ? "Note to finder (optional)" : "Describe identifying details *"}
+                  </label>
+                  <textarea
+                    rows={2}
+                    required={!hasQuestions}
+                    placeholder="Describe unique scratches, serials, contents, or where you lost it..."
+                    value={claimantNote}
+                    onChange={ev => setClaimantNote(ev.target.value)}
+                    className={inputCls + " text-xs resize-none"}
+                  />
+                </div>
+                <button type="submit" className={btnPrimary + " self-start text-xs py-2"}>
+                  Submit claim
+                </button>
+              </>
+            )}
+          </form>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
 // ─── Post Detail (full-screen, Reddit-style) ───────────────────────────────────
 
-function PostDetail({ item, comments, currentUserId, onBack, onAddComment, onAddReply, onClaim }: {
+function PostDetail({
+  item, comments, currentUserId, onBack, onAddComment, onAddReply, onClaim,
+  onUpvote, upvoted, onRepost, reposted, repostCount, onShare,
+  challengeResponses = [], onSubmitChallengeResponse, onSubmitFoundReport,
+  onOwnerAnswer, onApprove, onReject, initialActionOpen = false,
+}: {
   item: Item;
   comments: ItemComment[];
   currentUserId: string;
@@ -734,10 +1087,23 @@ function PostDetail({ item, comments, currentUserId, onBack, onAddComment, onAdd
   onAddComment: (message: string, visibility: "public" | "private") => void;
   onAddReply: (commentId: string, message: string) => void;
   onClaim?: (item: Item) => void;
+  onUpvote?: (id: string) => void;
+  upvoted?: boolean;
+  onRepost?: (item: Item) => void;
+  reposted?: boolean;
+  repostCount?: number;
+  onShare?: (item: Item) => Promise<ShareResult>;
+  challengeResponses?: ChallengeResponse[];
+  onSubmitChallengeResponse?: (itemId: string, answers: ChallengeAnswer[], note: string) => void;
+  onSubmitFoundReport?: (item: Item, questions: ChallengeQuestion[], note: string) => void;
+  onOwnerAnswer?: (responseId: string, answers: ChallengeAnswer[], ownerNote: string) => void;
+  onApprove?: (responseId: string) => void;
+  onReject?: (responseId: string) => void;
+  initialActionOpen?: boolean;
 }) {
   const [commentDraft, setCommentDraft] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
-  const lostFlow = useLostFlow();
+  const openAuthor = useOpenAuthor();
 
   // A private comment thread is visible only to the post's author and the
   // thread's author. Filter the top-level list accordingly.
@@ -771,28 +1137,36 @@ function PostDetail({ item, comments, currentUserId, onBack, onAddComment, onAdd
         <span className="font-semibold text-sm truncate" style={{ color: "#2C1414" }}>Post</span>
       </header>
 
-      {/* Scrollable: full post, then comment thread */}
+      {/* Scrollable: full post, action row, ownership action section, then comment thread */}
       <div className="flex-1 overflow-y-auto scroll-area">
         <div className="max-w-2xl mx-auto px-4 py-4">
           {/* The post */}
           <div className="pb-4 mb-4" style={{ borderBottom: "1px solid #C1856D" }}>
             <div className="flex items-center gap-2">
-              <Avatar id={item.finder_id} name={item.finder_name} size={32} />
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-sm font-semibold" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}</span>
-                  {useIsVerified(item.finder_id) && <VerificationBadge size={13} />}
-                  <span
-                    className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                    style={item.kind === "lost" ? { background: "#F5ECEC", color: "#9A3F3F" } : { background: "#E6CFA9", color: "#5C2020" }}
-                  >
-                    {item.kind === "lost" ? "Lost" : "Found"}
-                  </span>
-                  <StatusBadge status={item.status} />
+              <div
+                className="flex items-center gap-2 cursor-pointer hover:opacity-80"
+                onClick={() => openAuthor(item.finder_id, item.finder_name || userName(item.finder_id))}
+              >
+                <Avatar id={item.finder_id} name={item.finder_name} size={32} />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-sm font-semibold hover:underline" style={{ color: "#2C1414" }}>
+                      {item.finder_name || userName(item.finder_id)}
+                    </span>
+                    {useIsVerified(item.finder_id) && <VerificationBadge size={13} />}
+                    <span
+                      className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                      style={item.kind === "lost" ? { background: "#F5ECEC", color: "#9A3F3F" } : { background: "#E6CFA9", color: "#5C2020" }}
+                    >
+                      {item.kind === "lost" ? "Lost" : "Found"}
+                    </span>
+                    <StatusBadge status={item.status} />
+                  </div>
+                  <span className="text-xs" style={{ color: "#9A7070" }}>{postedLabel(item.created_at)}</span>
                 </div>
-                <span className="text-xs" style={{ color: "#9A7070" }}>{postedLabel(item.created_at)}</span>
               </div>
             </div>
+
             <h1 className="mt-3 font-semibold text-xl leading-snug" style={{ color: "#2C1414" }}>{item.title}</h1>
             {item.description && <p className="mt-2 text-sm leading-relaxed" style={{ color: "#2C1414" }}>{item.description}</p>}
             {item.image_url && (
@@ -803,26 +1177,36 @@ function PostDetail({ item, comments, currentUserId, onBack, onAddComment, onAdd
               {item.time_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconClock />{formatDate(item.time_found)}</span>}
             </div>
 
-            {/* Primary action — same as the card: Prove it's yours / I found this */}
-            {item.status !== "released" && currentUserId !== item.finder_id && (
-              item.kind === "lost" ? (
-                <button
-                  onClick={() => { onBack(); lostFlow.onFoundThis(item); }}
-                  className="mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-colors"
-                  style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-                >
-                  I found it
-                </button>
-              ) : onClaim ? (
-                <button
-                  onClick={() => { onBack(); onClaim(item); }}
-                  className="mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-colors"
-                  style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-                >
-                  I lost it
-                </button>
-              ) : null
-            )}
+            {/* Post actions (Upvote, Comment count, Repost, Share) */}
+            <div className="mt-4 pt-3" style={{ borderTop: "1px dashed #C1856D" }}>
+              <PostActions
+                postId={item.id}
+                baseUpvotes={item.upvotes}
+                upvoted={upvoted}
+                onUpvote={onUpvote}
+                comments={comments}
+                onAddComment={onAddComment}
+                onAddReply={onAddReply}
+                repostItem={item}
+                onRepost={onRepost}
+                reposted={reposted}
+                repostCount={repostCount}
+                onShare={onShare}
+              />
+            </div>
+
+            {/* Inline Ownership Action Section */}
+            <OwnershipActionSection
+              item={item}
+              currentUserId={currentUserId}
+              responses={challengeResponses}
+              onSubmitChallengeResponse={onSubmitChallengeResponse}
+              onSubmitFoundReport={onSubmitFoundReport}
+              onOwnerAnswer={onOwnerAnswer}
+              onApprove={onApprove}
+              onReject={onReject}
+              initialOpen={initialActionOpen}
+            />
           </div>
 
           <p className="text-sm font-semibold mb-3" style={{ color: "#2C1414" }}>
@@ -1302,6 +1686,7 @@ function ChallengeModal({ item, onClose, onSubmit }: {
   onClose: () => void;
   onSubmit: (answers: ChallengeAnswer[], note: string) => void;
 }) {
+  const openDetail = useOpenDetail();
   const questions = item.challenge ?? [];
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
@@ -1333,7 +1718,7 @@ function ChallengeModal({ item, onClose, onSubmit }: {
         <button onClick={onClose} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
           <IconArrowLeft /> Back
         </button>
-        <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>I lost this</span>
+        <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>I lost it</span>
       </header>
 
       <div className="max-w-lg mx-auto px-4 py-6">
@@ -1350,14 +1735,19 @@ function ChallengeModal({ item, onClose, onSubmit }: {
           </div>
         ) : (
           <>
-            {/* Item context */}
-            <div className="rounded-xl p-4 mb-6 flex items-start gap-3" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+            {/* Item context — click to open actual post */}
+            <button
+              type="button"
+              onClick={() => { onClose(); openDetail(item); }}
+              className="w-full text-left rounded-xl p-4 mb-6 flex items-start gap-3 transition-shadow hover:shadow-md"
+              style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}
+            >
               {item.image_url && <img src={item.image_url} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />}
               <div className="min-w-0">
                 <p className="font-semibold text-sm" style={{ color: "#2C1414" }}>{item.title}</p>
                 <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>{hasQuestions ? "Answer the finder's questions to prove this item is yours." : "Send the finder a note explaining why this item is yours."}</p>
               </div>
-            </div>
+            </button>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-5">
               {questions.map((q, i) => (
@@ -1609,7 +1999,7 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
   }
 
   const title =
-    mode === "author" ? "I found this" :
+    mode === "author" ? "I found it" :
     mode === "owner-answer" ? "Verify it's yours" :
     isOwner ? "Your submission" :
     "Review answers";
