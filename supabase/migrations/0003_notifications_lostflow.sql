@@ -69,3 +69,6 @@ create policy notifications_update on public.notifications
 
 -- ─── Realtime (idempotent) ────────────────────────────────────────────────────
 do $$ begin alter publication supabase_realtime add table public.notifications; exception when duplicate_object then null; end $$;
+
+-- Owner's note back to the finder (lost flow).
+alter table public.challenge_responses add column if not exists owner_note text;

@@ -263,6 +263,7 @@ export interface DbChallengeResponse {
   owner_id?: string;
   answers: { question_id: string; prompt: string; answer: string }[];
   note?: string;
+  owner_note?: string;
   status: "pending" | "approved" | "rejected" | "escalated" | "awaiting_owner" | "answered";
   created_at: string;
 }
@@ -278,6 +279,7 @@ export async function listChallengeResponses(): Promise<DbChallengeResponse[]> {
     owner_id: (r.owner_id as string) ?? undefined,
     answers: (r.answers as DbChallengeResponse["answers"]) ?? [],
     note: (r.note as string) ?? undefined,
+    owner_note: (r.owner_note as string) ?? undefined,
     status: (r.status as DbChallengeResponse["status"]) ?? "pending",
     created_at: (r.created_at as string) ?? new Date().toISOString(),
   }));
@@ -306,9 +308,13 @@ export async function updateChallengeResponseAnswers(
   id: string,
   answers: DbChallengeResponse["answers"],
   status: DbChallengeResponse["status"],
+  ownerNote?: string,
 ): Promise<boolean> {
   if (!isDbEnabled) return false;
-  const { error } = await supabase!.from("challenge_responses").update({ answers, status }).eq("id", id);
+  const { error } = await supabase!
+    .from("challenge_responses")
+    .update({ answers, status, owner_note: ownerNote ?? null })
+    .eq("id", id);
   if (error) { console.warn("updateChallengeResponseAnswers failed:", error.message); return false; }
   return true;
 }

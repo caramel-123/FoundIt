@@ -119,7 +119,8 @@ interface ChallengeResponse {
   responder_name: string;
   owner_id?: string;      // lost flow: the lost post's owner (who must answer)
   answers: ChallengeAnswer[];
-  note?: string;
+  note?: string;          // finder's note (lost flow) / responder's note (found flow)
+  owner_note?: string;    // lost flow: the owner's note back to the finder
   status: ChallengeResponseStatus;
   created_at: string;
 }
@@ -968,15 +969,25 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
         extra={
           // Lost post → "I found this" (not shown to the owner who posted it).
           item.kind === "lost" && lostFlow.currentUserId && item.finder_id !== lostFlow.currentUserId ? (
-            <button
-              onClick={() => lostFlow.onFoundThis(item)}
-              className="ml-auto px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
-              style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-              onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
-              onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
-            >
-              I found this
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <span
+                className="flex items-center gap-1 text-xs font-medium"
+                style={{ color: "#6B3A3A" }}
+                title={`${challengeResponseCount} people responded`}
+              >
+                <IconUsers />
+                {challengeResponseCount}
+              </span>
+              <button
+                onClick={() => lostFlow.onFoundThis(item)}
+                className="px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
+                style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
+                onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
+              >
+                I found this
+              </button>
+            </div>
           ) :
           // "Prove it's yours" applies only to FOUND items.
           item.kind !== "lost" && role !== "staff" && onClaim && item.status !== "released" ? (
@@ -1420,7 +1431,7 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
   report?: ChallengeResponse; // existing report for (this item, this finder) if any
   onClose: () => void;
   onSubmitReport: (item: Item, questions: ChallengeQuestion[], note: string) => void;
-  onOwnerAnswer: (responseId: string, answers: ChallengeAnswer[]) => void;
+  onOwnerAnswer: (responseId: string, answers: ChallengeAnswer[], ownerNote: string) => void;
   onApprove: (responseId: string) => void;
   onReject: (responseId: string) => void;
 }) {
@@ -1433,6 +1444,7 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
   const [note, setNote] = useState("");
   // owner-answer state
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [ownerNote, setOwnerNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
@@ -1455,7 +1467,7 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
     if (!report) return;
     const filled = report.answers.map(a => ({ ...a, answer: (answers[a.question_id] ?? "").trim() }));
     if (filled.some(a => !a.answer)) return;
-    onOwnerAnswer(report.id, filled);
+    onOwnerAnswer(report.id, filled, ownerNote);
     setSubmitted(true);
   }
 
@@ -1536,26 +1548,35 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
                   <input type="text" value={answers[a.question_id] ?? ""} onChange={e => setAnswers(v => ({ ...v, [a.question_id]: e.target.value }))} className={inputCls} required />
                 </div>
               ))}
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Note to the finder (optional)</label>
+                <textarea value={ownerNote} onChange={e => setOwnerNote(e.target.value)} rows={3} className={inputCls + " resize-none"} placeholder="Thanks! When/where can I pick it up?" />
+              </div>
               <button type="submit" className={btnPrimary + " w-full py-3"}>Submit answers</button>
             </form>
           ) : report ? (
             <div className="flex flex-col gap-4">
               {report.note && (
-                <div className="rounded-lg p-3 text-sm" style={{ background: "#F5ECEC", border: "1px solid #C1856D", color: "#2C1414" }}>
-                  <span className="font-semibold">Your note: </span>{report.note}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Your note to the owner</label>
+                  <textarea value={report.note} readOnly rows={2} className={inputCls + " resize-none"} />
                 </div>
               )}
               {report.status === "awaiting_owner" ? (
                 <p className="text-sm py-8 text-center" style={{ color: "#9A7070" }}>Waiting for the owner to answer your questions…</p>
               ) : (
                 <>
-                  <div className="flex flex-col gap-2">
-                    {report.answers.map(a => (
-                      <div key={a.question_id} className="rounded-lg p-3" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-                        <p className="text-xs font-medium" style={{ color: "#6B3A3A" }}>{a.prompt}</p>
-                        <p className="text-sm mt-0.5" style={{ color: "#2C1414" }}>{a.answer || "—"}</p>
-                      </div>
-                    ))}
+                  {/* Same field layout as the answer form — question label above,
+                      the owner's answer shown in a read-only field. */}
+                  {report.answers.map((a, i) => (
+                    <div key={a.question_id}>
+                      <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</label>
+                      <input type="text" value={a.answer || ""} readOnly className={inputCls} />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Note from the owner</label>
+                    <textarea value={report.owner_note || "—"} readOnly rows={3} className={inputCls + " resize-none"} />
                   </div>
                   {report.status === "answered" ? (
                     <div className="flex gap-3 pt-2">
@@ -3448,10 +3469,11 @@ export default function App() {
     pushNotification(item.finder_id, `${user.name} found your "${item.title}" — answer their questions to verify.`, item.id, response.id);
   }
 
-  // Owner fills in the answers to a found report's questions.
-  function handleOwnerAnswer(responseId: string, answers: ChallengeAnswer[]) {
-    setChallengeResponses(prev => prev.map(r => r.id === responseId ? { ...r, answers, status: "answered" } : r));
-    if (isDbEnabled) updateChallengeResponseAnswers(responseId, answers, "answered");
+  // Owner fills in the answers to a found report's questions (+ optional note back).
+  function handleOwnerAnswer(responseId: string, answers: ChallengeAnswer[], ownerNote: string) {
+    const note = ownerNote.trim() || undefined;
+    setChallengeResponses(prev => prev.map(r => r.id === responseId ? { ...r, answers, owner_note: note, status: "answered" } : r));
+    if (isDbEnabled) updateChallengeResponseAnswers(responseId, answers, "answered", note);
     const r = challengeResponses.find(x => x.id === responseId);
     if (r) pushNotification(r.responder_id, `The owner answered your questions on "${itemTitle(r.item_id)}". Review to confirm.`, r.item_id, r.id);
   }
