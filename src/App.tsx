@@ -3426,13 +3426,17 @@ export default function App() {
   // Finder authors questions (+ note); the lost post's owner must answer.
   function handleSubmitFoundReport(item: Item, questions: ChallengeQuestion[], note: string) {
     if (!user) return;
-    const response: ChallengeResponse = {
+    const response: ChallengeResponse & { finder_id: string } = {
       id: `cr${Date.now()}`,
       kind: "lost",
       item_id: item.id,
-      responder_id: user.id,       // the finder reporting
+      // In the lost flow the reporter (the person who has the item) is both the
+      // "responder" and the row's finder_id (NOT NULL in the DB). The lost post's
+      // owner is owner_id — they read/answer the report.
+      finder_id: user.id,
+      responder_id: user.id,
       responder_name: user.name,
-      owner_id: item.finder_id,    // lost post's owner (poster)
+      owner_id: item.finder_id,
       // Questions become answer slots with empty `answer` for the owner to fill.
       answers: questions.filter(q => q.prompt.trim()).map(q => ({ question_id: q.id, prompt: q.prompt.trim(), answer: "" })),
       note: note.trim() || undefined,
