@@ -2,6 +2,12 @@
 
 React + Vite + Tailwind CSS project running inside Figma Make.
 
+## Spec first
+
+Always update `.kiro/specs/campus-lost-found/` (`requirements.md`, `design.md`,
+`tasks.md`) **before** implementing any new or changed behavior. Do not write
+application code from chat alone. See `.kiro/steering/spec-driven-workflow.md`.
+
 ## Development Server
 
 A Vite development server is **already running** on `$PORT` (default 8443). You don't need to start it manually.

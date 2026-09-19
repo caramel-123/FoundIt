@@ -1,0 +1,20 @@
+---
+description: Always update the FoundIt spec before implementing any behavior change
+alwaysApply: true
+---
+
+# Spec first
+
+The spec is the source of truth. Do not write application code for a new or changed behavior until the spec is updated.
+
+1. Update `.kiro/specs/campus-lost-found/` first:
+   - `requirements.md` — user stories and EARS acceptance criteria
+   - `design.md` — architecture, components, data model
+   - `tasks.md` — implementation checklist
+2. Keep those three documents consistent with each other.
+3. Then implement only what the updated spec says.
+4. If the request conflicts with the spec, change the spec to resolve it, then code.
+5. Pure bug fixes / refactors / cosmetics that do not change specified behavior may skip a spec edit.
+6. If code has already drifted, stop and catch the spec up before more feature work.
+
+Do not implement from chat alone. If there is no spec entry, add one first.

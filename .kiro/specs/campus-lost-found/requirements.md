@@ -13,10 +13,11 @@ It starts with no seeded data — items, claims, and missing notices appear only
 as the signed-in user creates them during a session. Authentication uses Google
 sign-in (Requirement 10). Application data is migrating from per-browser
 `localStorage` (Requirement 14) to **shared Supabase Postgres** (Phase 3) so all
-users see each other's posts; this is done incrementally, starting with the
-catalog `items`. Slices not yet migrated still use `localStorage` as a fallback. The Supabase-backed architecture (Postgres, RLS, Auth, Storage,
-Edge Functions, PWA/offline) is the target for later phases and is captured in
-`design.md`.
+users see each other's posts. Migrated slices: items, comments, reposts,
+challenge responses, verifications, and notifications. **Claims and claim
+threads remain on `localStorage`.** The Supabase-backed architecture (Postgres,
+RLS, Auth, Storage, Edge Functions, PWA/offline) is the target for later phases
+and is captured in `design.md`.
 
 ### Personas
 - **Finder** — found something, wants to log it fast (ideally from a phone,
@@ -125,9 +126,12 @@ that I can quickly scan who posted it, when, and what it is.
 3. THE item card SHALL show a title, a description, the found location, and a
    status indicator shown as an icon.
 4. THE item card SHALL provide an action row with upvote, comment, repost, and
-   share controls, aligned on a single row.
+   share controls, aligned on a single row. Those controls SHALL use a
+   transparent fill and a terracotta outline (no solid pink/cream pill fill), so
+   the cream page color shows through.
 5. WHERE the item is claimable by the current role THE system SHALL show a
-   "Claim this item" action aligned to the bottom-right of the card.
+   found-post action labeled **"I lost it"** (Requirement 16) or, on a lost post,
+   **"I found it"** (Requirement 17), aligned to the bottom-right of the card.
 
 ### Requirement 5 — Item card actions (upvote, comment, repost, share)
 
@@ -153,7 +157,7 @@ Repost (Facebook-style):
 6. WHERE the user has already reposted an item THE dialog SHALL let the user
    remove their repost; removing it SHALL decrement the count and clear the
    active state.
-7. THE repost SHALL appear on the user's own timeline and also in the public
+7. THE repost SHALL appear on the user's profile and also in the public
    catalog feed as a reposted card that quotes the original item and shows the
    reposter's caption (if any).
 8. THE repost SHALL be an engagement signal only, with no effect on item status.
@@ -161,6 +165,8 @@ Repost (Facebook-style):
     replies), and share — independent of the original item's counts and thread.
 8b. WHEN a user activates Repost on a reposted card THEN the system SHALL repost
     the underlying original item (not the repost itself).
+8c. WHEN a user activates the quoted original on a reposted card THEN the system
+    SHALL open the original item's full-screen post detail (Requirement 5.11).
 
 Share:
 9. WHEN a user activates share THEN the system SHALL copy a link to that item to
