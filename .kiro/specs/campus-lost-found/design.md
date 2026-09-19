@@ -72,11 +72,12 @@ type Role = "finder" | "owner" | "staff";
 
 interface Item {
   id: string;
-  finder_id: string;
+  kind: "found" | "lost"; // "lost" posts are owner-reported and appear in the catalog too
+  finder_id: string;      // for lost posts this is the reporter (owner)
   title: string;
   category: string;
-  location_found: string;
-  time_found: string;
+  location_found: string; // for lost posts, where it was lost
+  time_found: string;     // for lost posts, when it was lost
   description: string;
   private_note?: string;
   status: ItemStatus;

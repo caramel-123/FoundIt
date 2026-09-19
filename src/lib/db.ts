@@ -20,6 +20,7 @@ export interface DbChallengeQuestion {
 
 export interface DbItem {
   id: string;
+  kind?: "found" | "lost";
   finder_id: string;
   finder_name?: string;
   title: string;
@@ -39,6 +40,7 @@ export interface DbItem {
 function rowToItem(row: Record<string, unknown>): DbItem {
   return {
     id: String(row.id),
+    kind: (row.kind as DbItem["kind"]) ?? "found",
     finder_id: String(row.finder_id ?? ""),
     finder_name: (row.finder_name as string) ?? undefined,
     title: (row.title as string) ?? "",
@@ -76,6 +78,7 @@ export async function createItem(item: DbItem): Promise<DbItem | null> {
     .from("items")
     .insert({
       id: item.id,
+      kind: item.kind ?? "found",
       finder_id: item.finder_id,
       finder_name: item.finder_name ?? null,
       title: item.title,
@@ -114,4 +117,254 @@ export function subscribeItems(onChange: (items: DbItem[]) => void): () => void 
   return () => {
     supabase!.removeChannel(channel);
   };
+}
+
+// ─── Comments (branching tree, stored flat with parent_id) ──────────────────────
+
+export interface DbCommentNode {
+  id: string;
+  author_id: string;
+  author_name: string;
+  message: string;
+  created_at: string;
+  replies: DbCommentNode[];
+}
+
+interface CommentRow {
+  id: string;
+  post_id: string;
+  parent_id: string | null;
+  author_id: string;
+  author_name: string | null;
+  message: string;
+  created_at: string;
+}
+
+// Rebuild the per-post nested tree from flat rows.
+function rowsToCommentMap(rows: CommentRow[]): Record<string, DbCommentNode[]> {
+  const nodeById = new Map<string, DbCommentNode>();
+  for (const r of rows) {
+    nodeById.set(r.id, {
+      id: r.id,
+      author_id: r.author_id,
+      author_name: r.author_name ?? "",
+      message: r.message,
+      created_at: r.created_at,
+      replies: [],
+    });
+  }
+  const byPost: Record<string, DbCommentNode[]> = {};
+  // Sort oldest first so parents are placed before children reference them.
+  const sorted = [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  for (const r of sorted) {
+    const node = nodeById.get(r.id)!;
+    if (r.parent_id && nodeById.has(r.parent_id)) {
+      nodeById.get(r.parent_id)!.replies.push(node);
+    } else {
+      (byPost[r.post_id] ??= []).push(node);
+    }
+  }
+  return byPost;
+}
+
+export async function listComments(): Promise<Record<string, DbCommentNode[]>> {
+  if (!isDbEnabled) return {};
+  const { data, error } = await supabase!.from("comments").select("*");
+  if (error) { console.warn("listComments failed:", error.message); return {}; }
+  return rowsToCommentMap((data ?? []) as CommentRow[]);
+}
+
+export async function insertComment(input: {
+  id: string; post_id: string; parent_id: string | null;
+  author_id: string; author_name: string; message: string; created_at: string;
+}): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("comments").insert({
+    id: input.id, post_id: input.post_id, parent_id: input.parent_id,
+    author_id: input.author_id, author_name: input.author_name,
+    message: input.message, created_at: input.created_at,
+  });
+  if (error) { console.warn("insertComment failed:", error.message); return false; }
+  return true;
+}
+
+export function subscribeComments(onChange: (map: Record<string, DbCommentNode[]>) => void): () => void {
+  if (!isDbEnabled) return () => {};
+  const channel = supabase!
+    .channel("public:comments")
+    .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, async () => {
+      onChange(await listComments());
+    })
+    .subscribe();
+  return () => { supabase!.removeChannel(channel); };
+}
+
+// ─── Reposts ─────────────────────────────────────────────────────────────────
+
+export interface DbRepost {
+  id: string;
+  item_id: string;
+  user_id: string;
+  user_name: string;
+  caption?: string;
+  created_at: string;
+}
+
+export async function listReposts(): Promise<DbRepost[]> {
+  if (!isDbEnabled) return [];
+  const { data, error } = await supabase!.from("reposts").select("*").order("created_at", { ascending: false });
+  if (error) { console.warn("listReposts failed:", error.message); return []; }
+  return (data ?? []).map(r => ({
+    id: String(r.id), item_id: String(r.item_id), user_id: String(r.user_id),
+    user_name: (r.user_name as string) ?? "", caption: (r.caption as string) ?? undefined,
+    created_at: (r.created_at as string) ?? new Date().toISOString(),
+  }));
+}
+
+export async function upsertRepost(r: DbRepost): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  // One repost per user per item: remove any existing, then insert.
+  await supabase!.from("reposts").delete().eq("item_id", r.item_id).eq("user_id", r.user_id);
+  const { error } = await supabase!.from("reposts").insert({
+    id: r.id, item_id: r.item_id, user_id: r.user_id, user_name: r.user_name,
+    caption: r.caption ?? null, created_at: r.created_at,
+  });
+  if (error) { console.warn("upsertRepost failed:", error.message); return false; }
+  return true;
+}
+
+export async function removeRepost(itemId: string, userId: string): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("reposts").delete().eq("item_id", itemId).eq("user_id", userId);
+  if (error) { console.warn("removeRepost failed:", error.message); return false; }
+  return true;
+}
+
+export function subscribeReposts(onChange: (rows: DbRepost[]) => void): () => void {
+  if (!isDbEnabled) return () => {};
+  const channel = supabase!
+    .channel("public:reposts")
+    .on("postgres_changes", { event: "*", schema: "public", table: "reposts" }, async () => {
+      onChange(await listReposts());
+    })
+    .subscribe();
+  return () => { supabase!.removeChannel(channel); };
+}
+
+// ─── Challenge responses ───────────────────────────────────────────────────────
+
+export interface DbChallengeResponse {
+  id: string;
+  item_id: string;
+  finder_id: string;
+  responder_id: string;
+  responder_name: string;
+  answers: { question_id: string; prompt: string; answer: string }[];
+  note?: string;
+  status: "pending" | "approved" | "rejected" | "escalated";
+  created_at: string;
+}
+
+export async function listChallengeResponses(): Promise<DbChallengeResponse[]> {
+  if (!isDbEnabled) return [];
+  const { data, error } = await supabase!.from("challenge_responses").select("*").order("created_at", { ascending: false });
+  if (error) { console.warn("listChallengeResponses failed:", error.message); return []; }
+  return (data ?? []).map(r => ({
+    id: String(r.id), item_id: String(r.item_id), finder_id: String(r.finder_id),
+    responder_id: String(r.responder_id), responder_name: (r.responder_name as string) ?? "",
+    answers: (r.answers as DbChallengeResponse["answers"]) ?? [],
+    note: (r.note as string) ?? undefined,
+    status: (r.status as DbChallengeResponse["status"]) ?? "pending",
+    created_at: (r.created_at as string) ?? new Date().toISOString(),
+  }));
+}
+
+export async function insertChallengeResponse(r: DbChallengeResponse): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("challenge_responses").insert({
+    id: r.id, item_id: r.item_id, finder_id: r.finder_id, responder_id: r.responder_id,
+    responder_name: r.responder_name, answers: r.answers, note: r.note ?? null,
+    status: r.status, created_at: r.created_at,
+  });
+  if (error) { console.warn("insertChallengeResponse failed:", error.message); return false; }
+  return true;
+}
+
+export async function updateChallengeResponseStatus(id: string, status: DbChallengeResponse["status"]): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("challenge_responses").update({ status }).eq("id", id);
+  if (error) { console.warn("updateChallengeResponseStatus failed:", error.message); return false; }
+  return true;
+}
+
+export function subscribeChallengeResponses(onChange: (rows: DbChallengeResponse[]) => void): () => void {
+  if (!isDbEnabled) return () => {};
+  const channel = supabase!
+    .channel("public:challenge_responses")
+    .on("postgres_changes", { event: "*", schema: "public", table: "challenge_responses" }, async () => {
+      onChange(await listChallengeResponses());
+    })
+    .subscribe();
+  return () => { supabase!.removeChannel(channel); };
+}
+
+// ─── Verifications ─────────────────────────────────────────────────────────────
+
+export interface DbVerification {
+  user_id: string;
+  user_name: string;
+  status: "unverified" | "verified" | "rejected";
+  doc_type?: string;
+  extracted?: unknown;
+  confidence?: number;
+  ai_verdict?: string;
+  submitted_at?: string;
+  decided_at?: string;
+  decided_by?: string;
+}
+
+export async function listVerifications(): Promise<Record<string, DbVerification>> {
+  if (!isDbEnabled) return {};
+  const { data, error } = await supabase!.from("verifications").select("*");
+  if (error) { console.warn("listVerifications failed:", error.message); return {}; }
+  const map: Record<string, DbVerification> = {};
+  for (const r of data ?? []) {
+    const v = r as Record<string, unknown>;
+    map[String(v.user_id)] = {
+      user_id: String(v.user_id), user_name: (v.user_name as string) ?? "",
+      status: (v.status as DbVerification["status"]) ?? "unverified",
+      doc_type: (v.doc_type as string) ?? undefined,
+      extracted: v.extracted ?? undefined,
+      confidence: typeof v.confidence === "number" ? v.confidence : undefined,
+      ai_verdict: (v.ai_verdict as string) ?? undefined,
+      submitted_at: (v.submitted_at as string) ?? undefined,
+      decided_at: (v.decided_at as string) ?? undefined,
+      decided_by: (v.decided_by as string) ?? undefined,
+    };
+  }
+  return map;
+}
+
+export async function upsertVerification(v: DbVerification): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("verifications").upsert({
+    user_id: v.user_id, user_name: v.user_name, status: v.status,
+    doc_type: v.doc_type ?? null, extracted: v.extracted ?? null,
+    confidence: v.confidence ?? null, ai_verdict: v.ai_verdict ?? null,
+    submitted_at: v.submitted_at ?? null, decided_at: v.decided_at ?? null,
+    decided_by: v.decided_by ?? null,
+  });
+  if (error) { console.warn("upsertVerification failed:", error.message); return false; }
+  return true;
+}
+
+export function subscribeVerifications(onChange: (map: Record<string, DbVerification>) => void): () => void {
+  if (!isDbEnabled) return () => {};
+  const channel = supabase!
+    .channel("public:verifications")
+    .on("postgres_changes", { event: "*", schema: "public", table: "verifications" }, async () => {
+      onChange(await listVerifications());
+    })
+    .subscribe();
+  return () => { supabase!.removeChannel(channel); };
 }

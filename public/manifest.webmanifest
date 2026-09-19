@@ -1,0 +1,19 @@
+{
+  "name": "Foundit — Campus Lost & Found",
+  "short_name": "Foundit",
+  "description": "The campus admin office's trusted lost-and-found. Log found or lost items, verify custody, and claim what's yours.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FBF9D1",
+  "theme_color": "#9A3F3F",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

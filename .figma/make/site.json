@@ -1,4 +1,5 @@
 {
+  "title": "Foundit",
   "description": "Streamline campus lost-and-found processes with a secure, staff-managed catalog for logging, claiming, and tracking lost items, enhancing visibility and efficiency.",
   "robots": {
     "index": false

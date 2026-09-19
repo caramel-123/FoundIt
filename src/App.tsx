@@ -5,7 +5,13 @@ import { getSession, signInWithGoogle, signOut, onAuthChange } from "./lib/auth"
 import { createContext, useContext } from "react";
 import { parseCaption } from "./lib/captionImport";
 import { verifyStudent } from "./lib/studentVerify";
-import { isDbEnabled, listItems, createItem, subscribeItems } from "./lib/db";
+import {
+  isDbEnabled, listItems, createItem, subscribeItems,
+  listComments, insertComment, subscribeComments,
+  listReposts, upsertRepost, removeRepost, subscribeReposts,
+  listChallengeResponses, insertChallengeResponse, updateChallengeResponseStatus, subscribeChallengeResponses,
+  listVerifications, upsertVerification, subscribeVerifications,
+} from "./lib/db";
 
 // ─── Client-side persistence (Requirement 14) ───────────────────────────────────
 //
@@ -67,6 +73,7 @@ type ClaimStatus = "pending_review" | "approved" | "rejected";
 
 interface Item {
   id: string;
+  kind?: "found" | "lost"; // "lost" = owner-reported; shown in the catalog too. Defaults to found.
   finder_id: string;
   finder_name?: string;
   title: string;
@@ -129,19 +136,6 @@ interface ClaimMessage {
   created_at: string;
 }
 
-interface MissingNotice {
-  id: string;
-  owner_id: string;
-  title?: string;
-  category?: string;
-  description: string;
-  location_lost: string;
-  time_lost: string;
-  note?: string;
-  image_url?: string;
-  created_at: string;
-}
-
 // A single recursive node type powers branching (nested) replies: every comment
 // and every reply can itself be replied to, at arbitrary depth.
 interface CommentNode {
@@ -190,7 +184,6 @@ interface Repost {
 // Supabase data layer lands.)
 const MOCK_ITEMS: Item[] = [];
 const MOCK_CLAIMS: Claim[] = [];
-const MOCK_MISSING: MissingNotice[] = [];
 
 const CATEGORIES = ["All", "Electronics", "ID / Card", "Bag / Backpack", "Keys", "Clothing", "Wallet / Purse", "Water Bottle", "Books / Notes", "Other"];
 
@@ -394,38 +387,6 @@ function IconCamera() {
       <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
       <circle cx="12" cy="13" r="4"/>
     </svg>
-  );
-}
-
-// Type badges shown before a post title so users can tell found vs lost apart.
-function IconFound() {
-  // A hand offering / package — signals "someone found & is handing this in".
-  return (
-    <span
-      className="inline-flex items-center justify-center w-5 h-5 rounded-full shrink-0"
-      style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-      title="Found item"
-      aria-label="Found item"
-    >
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <polyline points="20 6 9 17 4 12"/>
-      </svg>
-    </span>
-  );
-}
-function IconLost() {
-  // A magnifier — signals "owner is searching for a lost item".
-  return (
-    <span
-      className="inline-flex items-center justify-center w-5 h-5 rounded-full shrink-0"
-      style={{ background: "#C1856D", color: "#FBF9D1" }}
-      title="Lost item"
-      aria-label="Lost item"
-    >
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
-      </svg>
-    </span>
   );
 }
 
@@ -908,13 +869,18 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
           <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}</span>
           {useIsVerified(item.finder_id) && <VerificationBadge size={13} />}
           <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(item.created_at)}</span>
+          <span
+            className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+            style={item.kind === "lost"
+              ? { background: "#F5ECEC", color: "#9A3F3F" }
+              : { background: "#E6CFA9", color: "#5C2020" }}
+          >
+            {item.kind === "lost" ? "Lost" : "Found"}
+          </span>
           <StatusBadge status={item.status} />
         </div>
 
-        <h3 className="text-base font-semibold leading-snug flex items-center gap-2" style={{ color: "#2C1414" }}>
-          <IconFound />
-          {item.title}
-        </h3>
+        <h3 className="text-base font-semibold leading-snug" style={{ color: "#2C1414" }}>{item.title}</h3>
         <p className="text-sm leading-relaxed" style={{ color: "#6B3A3A" }}>{item.description}</p>
 
         <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -1414,11 +1380,6 @@ function CatalogView({ items, role, user, search, categoryFilter, onClaim, onUpv
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold" style={{ color: "#2C1414" }}>Found Items</h1>
-        <p className="mt-1 text-sm" style={{ color: "#6B3A3A" }}>Items physically held by the admin office. All pickups require ID verification at the desk.</p>
-      </div>
-
       {filtered.length === 0 ? (
         <div className="text-center py-16 rounded-xl" style={{ border: "1px dashed #C1856D" }}>
           <p className="text-sm font-medium" style={{ color: "#6B3A3A" }}>No items match your search</p>
@@ -1474,9 +1435,8 @@ function CatalogView({ items, role, user, search, categoryFilter, onClaim, onUpv
 
 // ─── Finder Form ──────────────────────────────────────────────────────────────
 
-function FinderForm({ onSubmit, onPostNotice }: {
+function FinderForm({ onSubmit }: {
   onSubmit: (item: Partial<Item>) => void;
-  onPostNotice: (notice: Partial<MissingNotice>) => void;
 }) {
   const [mode, setMode] = useState<"found" | "lost">("found");
   const [form, setForm] = useState({ title: "", category: "", location_found: "", time_found: "", description: "", private_note: "" });
@@ -1556,13 +1516,18 @@ function FinderForm({ onSubmit, onPostNotice }: {
     e.preventDefault();
     setSubmitted(true);
     if (mode === "lost") {
-      onPostNotice({
+      // Lost posts are items with kind="lost" so they appear in the shared
+      // catalog for everyone (location_lost/time_lost map to location/time).
+      onSubmit({
+        kind: "lost",
         title: lostForm.title,
         category: lostForm.category,
+        location_found: lostForm.location_lost,
+        time_found: lostForm.time_lost,
         description: lostForm.description,
-        location_lost: lostForm.location_lost,
-        time_lost: lostForm.time_lost,
-        note: lostForm.note.trim() || undefined,
+        private_note: lostForm.note.trim() || undefined,
+        status: "in_office",
+        upvotes: 0,
         ...(photoData ? { image_url: photoData } : {}),
       });
       return;
@@ -1587,10 +1552,10 @@ function FinderForm({ onSubmit, onPostNotice }: {
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </div>
-        <h2 className="text-xl font-semibold" style={{ color: "#2C1414" }}>{mode === "lost" ? "Missing notice posted" : "Item logged"}</h2>
+        <h2 className="text-xl font-semibold" style={{ color: "#2C1414" }}>{mode === "lost" ? "Lost item posted" : "Item logged"}</h2>
         <p className="mt-2 text-sm leading-relaxed" style={{ color: "#6B3A3A" }}>
           {mode === "lost"
-            ? "Your notice is now in the Missing list. If someone finds and logs it at the office, check the catalog to claim it."
+            ? "Your lost-item post is now in the catalog for everyone to see. If someone finds it, they can respond there."
             : "Drop it off at the admin office (Room 101, Main Hall) to complete intake. The item won't appear in the public catalog until staff confirm physical custody."}
         </p>
         <button
@@ -1899,85 +1864,6 @@ function FinderForm({ onSubmit, onPostNotice }: {
 }
 
 // ─── Missing Notices ──────────────────────────────────────────────────────────
-
-function MissingNotices({ notices, onPost }: { notices: MissingNotice[]; onPost: (n: Partial<MissingNotice>) => void }) {
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ description: "", location_lost: "", time_lost: "" });
-  const [posted, setPosted] = useState(false);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    onPost(form);
-    setPosted(true);
-    setShowForm(false);
-    setForm({ description: "", location_lost: "", time_lost: "" });
-  }
-
-  return (
-    <div className="max-w-2xl mx-auto px-4 py-6">
-      <div className="flex items-start justify-between mb-6 gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold" style={{ color: "#2C1414" }}>Missing Notices</h1>
-          <p className="mt-1 text-sm" style={{ color: "#6B3A3A" }}>Passive bulletin for items not yet found. No chat or claims — if your item turns up in the catalog, claim it there.</p>
-        </div>
-        <button onClick={() => { setShowForm(s => !s); setPosted(false); }} className={btnPrimary + " shrink-0"}>
-          Post notice
-        </button>
-      </div>
-
-      {posted && (
-        <div className="mb-4 p-3 rounded-lg text-sm font-medium" style={{ background: "#F2EBE5", border: "1px solid #C1856D", color: "#5C2020" }}>
-          Notice posted. Check the catalog daily — staff will add your item once it's turned in.
-        </div>
-      )}
-
-      {showForm && (
-        <div className="mb-6 rounded-xl p-5" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-          <h2 className="font-semibold mb-4 text-sm" style={{ color: "#2C1414" }}>Post a missing notice</h2>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Description <span style={{ color: "#9A3F3F" }}>*</span></label>
-              <textarea required rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Brand, color, identifying markings..." className={inputCls + " resize-none"} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Where did you lose it? <span style={{ color: "#9A3F3F" }}>*</span></label>
-              <input required type="text" value={form.location_lost} onChange={e => setForm(f => ({ ...f, location_lost: e.target.value }))} placeholder="Building, area, or route" className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Approximately when? <span style={{ color: "#9A3F3F" }}>*</span></label>
-              <input required type="datetime-local" value={form.time_lost} onChange={e => setForm(f => ({ ...f, time_lost: e.target.value }))} className={inputCls} />
-            </div>
-            <div className="flex gap-3">
-              <button type="submit" className={btnPrimary + " flex-1"}>Post notice</button>
-              <button type="button" onClick={() => setShowForm(false)} className={btnSecondary}>Cancel</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-4">
-        {notices.map(n => (
-          <div key={n.id} className="rounded-xl p-5" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <IconLost />
-              {n.title && <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>{n.title}</span>}
-              {n.category && <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#FBF9D1", color: "#9A3F3F" }}>{n.category}</span>}
-            </div>
-            <p className="text-sm leading-relaxed" style={{ color: "#2C1414" }}>{n.description}</p>
-            <div className="flex flex-wrap gap-3 mt-3">
-              <span className="flex items-center gap-1.5 text-xs" style={{ color: "#6B3A3A" }}><IconMapPin />{n.location_lost}</span>
-              <span className="flex items-center gap-1.5 text-xs" style={{ color: "#6B3A3A" }}><IconClock />{formatDate(n.time_lost)}</span>
-            </div>
-            {n.image_url && (
-              <img src={n.image_url} alt={n.title || ""} className="mt-3 w-full max-h-64 rounded-lg object-cover" />
-            )}
-            <p className="text-xs mt-2" style={{ color: "#9A7070" }}>Posted {relativeDate(n.created_at)}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ─── Owner Claims View ────────────────────────────────────────────────────────
 
@@ -2309,7 +2195,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
 
 // ─── Nav ──────────────────────────────────────────────────────────────────────
 
-type View = "catalog" | "log" | "missing" | "claims" | "profile" | "staff";
+type View = "catalog" | "log" | "claims" | "profile" | "staff";
 
 function Nav({ view, setView, role, user, search, setSearch, categoryFilter, setCategoryFilter, offlineQueueCount }: {
   view: View;
@@ -2325,7 +2211,6 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
   const navItems: { id: View; label: string; roles: Role[] }[] = [
     { id: "catalog", label: "Catalog", roles: ["finder", "owner", "staff"] },
     { id: "log", label: "Log Item", roles: ["finder", "owner"] },
-    { id: "missing", label: "Missing", roles: ["finder", "owner"] },
     { id: "claims", label: "My Claims", roles: ["owner"] },
     { id: "staff", label: "Staff", roles: ["staff"] },
   ];
@@ -2334,6 +2219,8 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
   const canCreate = role !== "staff";
   const [menuOpen, setMenuOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
+  // On mobile, focusing the search hides the wordmark so the field gets full width.
+  const [searchFocused, setSearchFocused] = useState(false);
 
   function go(v: View) {
     setView(v);
@@ -2360,9 +2247,13 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
         >
           <IconMenu />
         </button>
-        <button onClick={() => setView("catalog")} className="flex items-center gap-2 shrink-0" aria-label="Home">
+        <button
+          onClick={() => setView("catalog")}
+          className={(searchFocused ? "hidden sm:flex" : "flex") + " items-center gap-2 shrink-0"}
+          aria-label="Home"
+        >
           <span className="font-semibold text-2xl block" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
-            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>It</span>
+            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
           </span>
         </button>
 
@@ -2375,6 +2266,8 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
             type="text"
             value={search}
             onChange={e => { setSearch(e.target.value); if (view !== "catalog") setView("catalog"); }}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
             placeholder="Search found items…"
             className="w-full pl-9 pr-16 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
             style={{ background: "#F7EDE6", borderColor: "#C1856D", color: "#2C1414" }}
@@ -2523,7 +2416,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
       <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(251,249,209,0.85)", borderBottom: "1px solid #E6CFA9" }}>
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
           <span className="font-semibold text-2xl" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
-            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>It</span>
+            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
           </span>
           <button
             onClick={onGetStarted}
@@ -2546,7 +2439,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] tracking-tight">
             Lost it on campus?{" "}
             <span style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
-              <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>It</span>
+              <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
             </span>{" "}
             probably has it.
           </h1>
@@ -2697,7 +2590,7 @@ function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: 
           style={{ background: "radial-gradient(600px circle at 15% 10%, rgba(255,255,255,0.10), transparent 45%), radial-gradient(500px circle at 90% 90%, rgba(193,133,109,0.35), transparent 50%)" }} />
         <div className="relative">
           <span className="text-3xl font-semibold" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
-            <span style={{ color: "#FBF9D1" }}>Found</span><span style={{ color: "#E8B89E" }}>It</span>
+            <span style={{ color: "#FBF9D1" }}>Found</span><span style={{ color: "#E8B89E" }}>it</span>
           </span>
         </div>
         <div className="relative">
@@ -2737,7 +2630,7 @@ function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: 
 
           {/* brand shown on mobile where the panel is hidden */}
           <span className="lg:hidden text-2xl font-semibold block mb-6" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
-            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>It</span>
+            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
           </span>
 
           <h1 className="text-3xl font-bold tracking-tight" style={{ color: "#2C1414" }}>Welcome back</h1>
@@ -2935,7 +2828,6 @@ export default function App() {
   const [view, setView] = useState<View>("catalog");
   const [items, setItems] = usePersistentState<Item[]>("items", MOCK_ITEMS);
   const [claims, setClaims] = usePersistentState<Claim[]>("claims", MOCK_CLAIMS);
-  const [notices, setNotices] = usePersistentState<MissingNotice[]>("notices", MOCK_MISSING);
   const [claimingItem, setClaimingItem] = useState<Item | null>(null);
   const [upvotedIds, setUpvotedIds] = usePersistentState<Set<string>>("upvotedIds", new Set(), setSerializer);
   const [reposts, setReposts] = usePersistentState<Repost[]>("reposts", []);
@@ -2971,9 +2863,22 @@ export default function App() {
   useEffect(() => {
     if (!isDbEnabled || !user) return;
     let active = true;
+    // Initial load of every shared slice.
     listItems().then(rows => { if (active) setItems(rows as Item[]); });
-    const unsub = subscribeItems(rows => setItems(rows as Item[]));
-    return () => { active = false; unsub(); };
+    listComments().then(map => { if (active) setComments(map as Record<string, ItemComment[]>); });
+    listReposts().then(rows => { if (active) setReposts(rows as Repost[]); });
+    listChallengeResponses().then(rows => { if (active) setChallengeResponses(rows as ChallengeResponse[]); });
+    listVerifications().then(map => { if (active) setVerifications(map as Record<string, StudentVerification>); });
+    // Realtime subscriptions keep everyone in sync.
+    const unsubItems = subscribeItems(rows => setItems(rows as Item[]));
+    const unsubComments = subscribeComments(map => setComments(map as Record<string, ItemComment[]>));
+    const unsubReposts = subscribeReposts(rows => setReposts(rows as Repost[]));
+    const unsubCR = subscribeChallengeResponses(rows => setChallengeResponses(rows as ChallengeResponse[]));
+    const unsubVer = subscribeVerifications(map => setVerifications(map as Record<string, StudentVerification>));
+    return () => {
+      active = false;
+      unsubItems(); unsubComments(); unsubReposts(); unsubCR(); unsubVer();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -3032,46 +2937,41 @@ export default function App() {
     const status: VerificationStatus = result.decision; // "verified" | "rejected"
 
     const now = new Date().toISOString();
-    setVerifications(prev => ({
-      ...prev,
-      [user.id]: {
-        user_id: user.id,
-        user_name: user.name,
-        status,
-        doc_type: docType,
-        extracted: result.extracted,
-        confidence: result.confidence,
-        ai_verdict: result.ai_verdict,
-        submitted_at: now,
-        decided_at: now,
-        decided_by: "ai",
-      },
-    }));
+    const record: StudentVerification = {
+      user_id: user.id,
+      user_name: user.name,
+      status,
+      doc_type: docType,
+      extracted: result.extracted,
+      confidence: result.confidence,
+      ai_verdict: result.ai_verdict,
+      submitted_at: now,
+      decided_at: now,
+      decided_by: "ai",
+    };
+    setVerifications(prev => ({ ...prev, [user.id]: record }));
+    if (isDbEnabled) upsertVerification(record as unknown as import("./lib/db").DbVerification);
     return result.message ?? (result.decision === "verified" ? "Verified." : "Not confirmed.");
   }
 
   function handleAddRepost(itemId: string, caption: string) {
     if (!user) return;
-    setReposts(prev => {
-      // Replace any existing repost by this user for this item (update caption).
-      const others = prev.filter(r => !(r.item_id === itemId && r.user_id === user.id));
-      return [
-        {
-          id: `rp${Date.now()}`,
-          item_id: itemId,
-          user_id: user.id,
-          user_name: user.name,
-          caption: caption.trim() || undefined,
-          created_at: new Date().toISOString(),
-        },
-        ...others,
-      ];
-    });
+    const repost: Repost = {
+      id: `rp${Date.now()}`,
+      item_id: itemId,
+      user_id: user.id,
+      user_name: user.name,
+      caption: caption.trim() || undefined,
+      created_at: new Date().toISOString(),
+    };
+    setReposts(prev => [repost, ...prev.filter(r => !(r.item_id === itemId && r.user_id === user.id))]);
+    if (isDbEnabled) upsertRepost(repost as unknown as import("./lib/db").DbRepost);
   }
 
   function handleRemoveRepost(itemId: string) {
     if (!user) return;
     setReposts(prev => prev.filter(r => !(r.item_id === itemId && r.user_id === user.id)));
+    if (isDbEnabled) removeRepost(itemId, user.id);
   }
 
   async function handleShare(item: Item): Promise<boolean> {
@@ -3095,6 +2995,11 @@ export default function App() {
       replies: [],
     };
     setComments(prev => ({ ...prev, [itemId]: [...(prev[itemId] ?? []), comment] }));
+    if (isDbEnabled) insertComment({
+      id: comment.id, post_id: itemId, parent_id: null,
+      author_id: comment.author_id, author_name: comment.author_name,
+      message: comment.message, created_at: comment.created_at,
+    });
   }
 
   function handleAddReply(itemId: string, parentId: string, message: string) {
@@ -3115,6 +3020,11 @@ export default function App() {
           : { ...n, replies: addInto(n.replies ?? []) },
       );
     setComments(prev => ({ ...prev, [itemId]: addInto(prev[itemId] ?? []) }));
+    if (isDbEnabled) insertComment({
+      id: reply.id, post_id: itemId, parent_id: parentId,
+      author_id: reply.author_id, author_name: reply.author_name,
+      message: reply.message, created_at: reply.created_at,
+    });
   }
 
   function handleClaimSubmit(details: string) {
@@ -3152,10 +3062,15 @@ export default function App() {
       created_at: new Date().toISOString(),
     };
     setChallengeResponses(prev => [response, ...prev]);
+    if (isDbEnabled) {
+      const finderId = items.find(i => i.id === itemId)?.finder_id ?? "";
+      insertChallengeResponse({ ...response, finder_id: finderId } as unknown as import("./lib/db").DbChallengeResponse);
+    }
   }
 
   function handleChallengeDecision(responseId: string, decision: "approved" | "rejected") {
     setChallengeResponses(prev => prev.map(r => r.id === responseId ? { ...r, status: decision } : r));
+    if (isDbEnabled) updateChallengeResponseStatus(responseId, decision);
   }
 
   // Finder escalates a response to staff: mark it escalated and create a Claim
@@ -3179,6 +3094,7 @@ export default function App() {
     };
     setClaims(prev => [...prev, newClaim]);
     setChallengeResponses(prev => prev.map(r => r.id === responseId ? { ...r, status: "escalated" } : r));
+    if (isDbEnabled) updateChallengeResponseStatus(responseId, "escalated");
   }
 
   function handleStatusChange(id: string, newStatus: ItemStatus) {
@@ -3209,14 +3125,17 @@ export default function App() {
   }
 
   function handleFinderSubmit(partial: Partial<Item>) {
+    const kind = partial.kind ?? "found";
     const newItem: Item = {
-      id: `i${Date.now()}`, finder_id: user?.id ?? "u_current", finder_name: user?.name,
-      title: partial.title || "Untitled found item",
+      id: `i${Date.now()}`, kind, finder_id: user?.id ?? "u_current", finder_name: user?.name,
+      title: partial.title || (kind === "lost" ? "Lost item" : "Untitled found item"),
       category: partial.category || "Other", location_found: partial.location_found || "",
       time_found: partial.time_found || new Date().toISOString(), description: partial.description || "",
       private_note: partial.private_note, image_url: partial.image_url, challenge: partial.challenge,
-      // Shared catalog: new posts are public immediately so everyone sees them.
-      status: isDbEnabled ? "in_office" : "pending_intake", upvotes: 0, created_at: new Date().toISOString(),
+      // Shared catalog: lost posts and (when db-backed) found posts are public
+      // immediately so everyone sees them.
+      status: (kind === "lost" || isDbEnabled) ? "in_office" : "pending_intake",
+      upvotes: 0, created_at: new Date().toISOString(),
     };
     if (isDbEnabled) {
       // Optimistic insert; realtime will reconcile with the stored row.
@@ -3225,15 +3144,6 @@ export default function App() {
     } else {
       setItems(prev => [newItem, ...prev]);
     }
-  }
-
-  function handleNoticePost(partial: Partial<MissingNotice>) {
-    setNotices(prev => [{
-      id: `mn${Date.now()}`, owner_id: user?.id ?? "u1",
-      description: partial.description || "", location_lost: partial.location_lost || "",
-      time_lost: partial.time_lost || new Date().toISOString(), image_url: partial.image_url,
-      created_at: new Date().toISOString(),
-    }, ...prev]);
   }
 
   const ownerClaims = user ? claims.filter(c => c.owner_id === user.id) : [];
@@ -3262,8 +3172,7 @@ export default function App() {
       <Nav view={view} setView={setView} role={role} user={user} search={search} setSearch={setSearch} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} offlineQueueCount={offlineQueueCount} />
       <main>
         {view === "catalog" && <CatalogView items={items} role={role} user={user} search={search} categoryFilter={categoryFilter} onClaim={handleClaimClick} onUpvote={handleUpvote} upvotedIds={upvotedIds} onRepost={setRepostingItem} repostCounts={repostCounts} myRepostItemIds={myRepostItemIds} reposts={reposts} onShare={handleShare} comments={comments} onAddComment={handleAddComment} onAddReply={handleAddReply} challengeResponseCounts={responseCounts} />}
-        {view === "log" && <FinderForm onSubmit={handleFinderSubmit} onPostNotice={handleNoticePost} />}
-        {view === "missing" && <MissingNotices notices={notices} onPost={handleNoticePost} />}
+        {view === "log" && <FinderForm onSubmit={handleFinderSubmit} />}
         {view === "claims" && <OwnerClaimsView claims={ownerClaims} items={items} onReply={handleOwnerReply} />}
         {view === "profile" && <ProfileView user={user} items={items} reposts={reposts} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} verification={myVerification} onSubmitVerification={handleSubmitVerification} verifiedIds={verifiedIds} responseCounts={responseCounts} onViewResponses={setResponsesItem} />}
         {view === "staff" && <StaffDashboard items={items} claims={claims} allItems={items} onStatusChange={handleStatusChange} onClaimAction={handleClaimAction} onStaffReply={handleStaffReply} />}

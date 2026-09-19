@@ -53,9 +53,11 @@ optional photo, so that I can hand it to the office and have it tracked.
    submission.
 3. WHEN a finder submits a valid Found form THEN the system SHALL create an item
    with status `pending_intake`.
-3a. WHEN the user submits the form in **Lost** mode THEN the system SHALL create a
-   missing notice (Requirement 9) and confirm the post, without entering the
-   found-item state machine.
+3a. WHEN the user submits the form in **Lost** mode THEN the system SHALL create an
+   item with `kind: "lost"` that appears in the shared catalog alongside found
+   items (so all users can see it), rather than a separate private notice. The
+   catalog SHALL visually distinguish lost vs found posts (a "Lost"/"Found" tag).
+   Lost items do not require the found-item custody steps.
 4. WHEN a photo is selected THEN the system SHALL show a processing state
    indicating location metadata (EXIF/GPS) is being stripped before the file is
    accepted.
@@ -88,8 +90,9 @@ that custody and release are controlled and auditable.
 holding, so that I can find my lost item without a noisy social feed.
 
 #### Acceptance Criteria
-1. THE catalog SHALL display items with status `in_office` or
-   `approved_for_pickup` to all users.
+1. THE catalog SHALL display both found items (`kind: "found"`) and lost items
+   (`kind: "lost"`) that are not `released`, to all users, each tagged with its
+   kind. (Found items also follow the status visibility rules below.)
 2. WHERE an item is `pending_intake` AND the current user is its finder THE
    catalog SHALL also display that item to the finder, visibly marked as
    "Pending Intake", so a freshly logged item reflects immediately for its
@@ -299,7 +302,12 @@ so that I can process the office workflow efficiently.
 **User story:** As an owner, I want to post a passive "still missing" notice, so
 that there is a record even if the item has not been turned in.
 
-#### Acceptance Criteria
+> Superseded: lost items are now posted as catalog items with `kind: "lost"`
+> (Requirement 1.3a / Requirement 3) and are visible to all users in the shared
+> catalog. The separate "Missing" tab / passive-notice model has been removed;
+> the criteria below are retained for historical context only.
+
+#### Acceptance Criteria (historical — superseded by kind:"lost")
 1. THE system SHALL allow an owner to post a missing notice with title, category,
    description, location lost, time lost, an optional private note to staff, and
    an optional photo.

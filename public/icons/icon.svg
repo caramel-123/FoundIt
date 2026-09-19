@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#9A3F3F"/>
+  <g transform="translate(256 256)">
+    <!-- target rings -->
+    <circle r="150" fill="none" stroke="#FBF9D1" stroke-width="34"/>
+    <circle r="96" fill="none" stroke="#C1856D" stroke-width="30"/>
+    <circle r="44" fill="#FBF9D1"/>
+    <!-- magnifier handle -->
+    <rect x="96" y="96" width="150" height="40" rx="20" transform="rotate(45 96 96)" fill="#FBF9D1"/>
+  </g>
+</svg>

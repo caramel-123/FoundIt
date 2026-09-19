@@ -6,6 +6,7 @@
 
 create table if not exists public.items (
   id text primary key,
+  kind text not null default 'found' check (kind in ('found','lost')),
   finder_id text not null,
   finder_name text,
   title text not null,
@@ -21,6 +22,16 @@ create table if not exists public.items (
   challenge jsonb,
   created_at timestamptz not null default now()
 );
+
+-- For DBs created before `kind` existed.
+alter table public.items
+  add column if not exists kind text not null default 'found';
+do $$
+begin
+  alter table public.items add constraint items_kind_check check (kind in ('found','lost'));
+exception
+  when duplicate_object then null;
+end $$;
 
 create index if not exists items_status_created_idx
   on public.items (status, created_at desc);
