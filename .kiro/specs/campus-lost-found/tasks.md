@@ -289,6 +289,32 @@ today; unchecked tasks are remaining work.
     optional image_url). Add `image_url?` to MissingNotice.
   - _Requirements: 1 (3, 3a), 9_
 
+## Phase 3.0 — Shared data via Supabase (incremental; start with items)
+
+Goal: all users see each other's posts by moving data from per-browser
+localStorage into shared Postgres, one slice at a time, with a localStorage
+fallback when Supabase isn't configured.
+
+- [ ] 19a. `items` table + RLS migration (apply to Supabase)
+  - Columns map the `Item` type (incl. `challenge jsonb`, `image_url`). RLS:
+    authenticated read of `in_office`/`approved_for_pickup` (+ finder's own
+    `pending_intake`); insert where `finder_id = auth.uid()`.
+  - _Requirements: 3, 1; Phase 3_
+
+- [ ] 19b. Data-access layer `src/lib/db.ts` for items
+  - `listItems`, `createItem`, `subscribeItems` (Realtime); row⇄Item mapping;
+    localStorage fallback when Supabase unconfigured.
+  - _Requirements: 3; Phase 3_
+
+- [ ] 19c. Rewire App items to Supabase (load + realtime + insert)
+  - Replace `usePersistentState("items")` with db load + realtime; write via
+    `createItem`. Other slices stay on localStorage until migrated.
+  - _Requirements: 3; Phase 3_
+
+- [ ] 19d. Later slices: notices, claims, comments, reposts, challenge responses,
+      verifications (same pattern)
+  - _Requirements: 6, 7, 9, 5, 16, 15; Phase 3_
+
 ## Phase 3 — Supabase backend
 
 - [ ] 13. Provision schema, enums, and indexes (items, claims, claim_messages,

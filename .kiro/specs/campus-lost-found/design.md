@@ -616,6 +616,64 @@ authoritative reference when wiring the backend.
    `FinderForm`.
 5. Add the PWA/offline layer last, over a working online app.
 
+## Phase 3 (in progress) — shared Supabase data so all users see each other's posts
+
+To make posts visible across users (not just within one browser's
+`localStorage`), application data moves into shared Supabase Postgres, read/written
+through a data-access layer with realtime sync. This is done **incrementally,
+one slice at a time**, starting with `items` (the catalog) to prove cross-user
+sharing, then claims, notices, comments, reposts, challenge responses, and
+verifications.
+
+### Data-access layer (`src/lib/db.ts`)
+
+- Thin functions per slice: e.g. `listItems()`, `createItem()`,
+  `subscribeItems(cb)` (Supabase Realtime). They map DB rows ⇄ the app's inline
+  types.
+- **Fallback:** when Supabase is not configured (`isSupabaseConfigured` false),
+  the app keeps its existing `usePersistentState` localStorage behavior so local
+  dev without env vars still works. When configured, the db layer is the source
+  of truth and localStorage is bypassed for migrated slices.
+
+### `items` table (first slice)
+
+```sql
+create table public.items (
+  id uuid primary key default gen_random_uuid(),
+  finder_id uuid not null references auth.users(id),
+  finder_name text,
+  title text not null,
+  category text not null,
+  location_found text not null,
+  time_found timestamptz,
+  description text not null,
+  private_note text,
+  status text not null default 'pending_intake'
+    check (status in ('pending_intake','in_office','approved_for_pickup','released')),
+  image_url text,
+  upvotes int not null default 0,
+  challenge jsonb,           -- ChallengeQuestion[] or null
+  created_at timestamptz not null default now()
+);
+alter table public.items enable row level security;
+```
+
+RLS (matches Requirement 3 visibility):
+- **select**: any authenticated user may read items that are `in_office` or
+  `approved_for_pickup`; a finder may also read their own `pending_intake` items.
+- **insert**: an authenticated user may insert an item where `finder_id = auth.uid()`.
+- **update**: (later slice) restricted to the finder / staff; not needed for the
+  first read/write slice.
+- `private_note` is not exposed publicly by app queries; column-level hardening
+  and staff-only exposure land with the claims/staff slice.
+
+### App rewiring (items)
+
+`App` replaces `usePersistentState("items", …)` with: load via `listItems()` on
+mount, subscribe via `subscribeItems` for realtime inserts/updates, and write via
+`createItem()` in `handleFinderSubmit`. Other slices remain on `localStorage`
+until their own migration lands.
+
 ## Error handling & edge cases (current prototype)
 
 - Empty search/filter result renders a clear empty state with a reset action.

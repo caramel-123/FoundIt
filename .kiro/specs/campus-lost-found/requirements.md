@@ -11,9 +11,10 @@ contact, and no listing of items the office does not physically hold yet.
 The current implementation (`src/App.tsx`) is a client-side React prototype.
 It starts with no seeded data — items, claims, and missing notices appear only
 as the signed-in user creates them during a session. Authentication uses Google
-sign-in (Requirement 10); all non-auth state lives in React (`useState`) and is
-persisted to the browser's `localStorage` so it survives page reloads (see
-Requirement 14). The Supabase-backed architecture (Postgres, RLS, Auth, Storage,
+sign-in (Requirement 10). Application data is migrating from per-browser
+`localStorage` (Requirement 14) to **shared Supabase Postgres** (Phase 3) so all
+users see each other's posts; this is done incrementally, starting with the
+catalog `items`. Slices not yet migrated still use `localStorage` as a fallback. The Supabase-backed architecture (Postgres, RLS, Auth, Storage,
 Edge Functions, PWA/offline) is the target for later phases and is captured in
 `design.md`.
 

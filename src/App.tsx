@@ -5,6 +5,7 @@ import { getSession, signInWithGoogle, signOut, onAuthChange } from "./lib/auth"
 import { createContext, useContext } from "react";
 import { parseCaption } from "./lib/captionImport";
 import { verifyStudent } from "./lib/studentVerify";
+import { isDbEnabled, listItems, createItem, subscribeItems } from "./lib/db";
 
 // ─── Client-side persistence (Requirement 14) ───────────────────────────────────
 //
@@ -2964,6 +2965,18 @@ export default function App() {
   const user = auth.status === "signed_in" ? auth.user : null;
   const role: Role = user?.role ?? "owner";
 
+  // Phase 3: when Supabase is configured, items come from the shared database
+  // (so all users see each other's posts) with realtime updates. This overrides
+  // the localStorage `items` slice. When the db is disabled, we keep localStorage.
+  useEffect(() => {
+    if (!isDbEnabled || !user) return;
+    let active = true;
+    listItems().then(rows => { if (active) setItems(rows as Item[]); });
+    const unsub = subscribeItems(rows => setItems(rows as Item[]));
+    return () => { active = false; unsub(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   // Set of user ids that are verified students — passed to cards/threads so the
   // "Verified student" badge shows next to their names.
   const verifiedIds = new Set(
@@ -3196,14 +3209,22 @@ export default function App() {
   }
 
   function handleFinderSubmit(partial: Partial<Item>) {
-    setItems(prev => [{
+    const newItem: Item = {
       id: `i${Date.now()}`, finder_id: user?.id ?? "u_current", finder_name: user?.name,
       title: partial.title || "Untitled found item",
       category: partial.category || "Other", location_found: partial.location_found || "",
       time_found: partial.time_found || new Date().toISOString(), description: partial.description || "",
       private_note: partial.private_note, image_url: partial.image_url, challenge: partial.challenge,
-      status: "pending_intake", upvotes: 0, created_at: new Date().toISOString(),
-    }, ...prev]);
+      // Shared catalog: new posts are public immediately so everyone sees them.
+      status: isDbEnabled ? "in_office" : "pending_intake", upvotes: 0, created_at: new Date().toISOString(),
+    };
+    if (isDbEnabled) {
+      // Optimistic insert; realtime will reconcile with the stored row.
+      setItems(prev => [newItem, ...prev]);
+      createItem(newItem as unknown as import("./lib/db").DbItem);
+    } else {
+      setItems(prev => [newItem, ...prev]);
+    }
   }
 
   function handleNoticePost(partial: Partial<MissingNotice>) {
