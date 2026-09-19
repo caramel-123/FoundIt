@@ -412,6 +412,12 @@ function useLostFlow() {
   return useContext(LostFlowContext);
 }
 
+// Opens a public author profile by user id, without prop-drilling.
+const OpenAuthorContext = createContext<(userId: string, name: string) => void>(() => {});
+function useOpenAuthor(): (userId: string, name: string) => void {
+  return useContext(OpenAuthorContext);
+}
+
 function ClaimBadge({ status }: { status: ClaimStatus }) {
   const styles: Record<ClaimStatus, { bg: string; text: string; border: string }> = {
     pending_review: { bg: "#FDF3EC", text: "#7A3A1A", border: "#E8C4AD" },
@@ -672,7 +678,7 @@ function PostActions({
         <button
           onClick={() => onUpvote?.(postId)}
           className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
-          style={{ background: "#F5ECEC", color: upvoted ? "#9A3F3F" : "#6B3A3A" }}
+          style={{ background: "transparent", border: `1px solid ${upvoted ? "#9A3F3F" : "#C1856D"}`, color: upvoted ? "#9A3F3F" : "#6B3A3A" }}
         >
           <IconChevronUp filled={upvoted} />
           <span>{baseUpvotes + (upvoted ? 1 : 0)}</span>
@@ -681,7 +687,7 @@ function PostActions({
         <button
           onClick={() => openDetail(repostItem)}
           className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
-          style={{ background: "#F5ECEC", color: "#6B3A3A" }}
+          style={{ background: "transparent", border: "1px solid #C1856D", color: "#6B3A3A" }}
           aria-label="Comments"
         >
           <IconComment />
@@ -691,7 +697,7 @@ function PostActions({
         <button
           onClick={() => onRepost?.(repostItem)}
           className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
-          style={{ background: "#F5ECEC", color: reposted ? "#9A3F3F" : "#6B3A3A" }}
+          style={{ background: "transparent", border: `1px solid ${reposted ? "#9A3F3F" : "#C1856D"}`, color: reposted ? "#9A3F3F" : "#6B3A3A" }}
           aria-label="Repost"
           aria-pressed={reposted}
           title={reposted ? "You reposted this" : "Repost"}
@@ -720,16 +726,18 @@ function PostActions({
 
 // ─── Post Detail (full-screen, Reddit-style) ───────────────────────────────────
 
-function PostDetail({ item, comments, currentUserId, onBack, onAddComment, onAddReply }: {
+function PostDetail({ item, comments, currentUserId, onBack, onAddComment, onAddReply, onClaim }: {
   item: Item;
   comments: ItemComment[];
   currentUserId: string;
   onBack: () => void;
   onAddComment: (message: string, visibility: "public" | "private") => void;
   onAddReply: (commentId: string, message: string) => void;
+  onClaim?: (item: Item) => void;
 }) {
   const [commentDraft, setCommentDraft] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const lostFlow = useLostFlow();
 
   // A private comment thread is visible only to the post's author and the
   // thread's author. Filter the top-level list accordingly.
@@ -794,6 +802,27 @@ function PostDetail({ item, comments, currentUserId, onBack, onAddComment, onAdd
               {item.location_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconMapPin />{item.location_found}</span>}
               {item.time_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconClock />{formatDate(item.time_found)}</span>}
             </div>
+
+            {/* Primary action — same as the card: Prove it's yours / I found this */}
+            {item.status !== "released" && currentUserId !== item.finder_id && (
+              item.kind === "lost" ? (
+                <button
+                  onClick={() => { onBack(); lostFlow.onFoundThis(item); }}
+                  className="mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-colors"
+                  style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+                >
+                  I found it
+                </button>
+              ) : onClaim ? (
+                <button
+                  onClick={() => { onBack(); onClaim(item); }}
+                  className="mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-colors"
+                  style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+                >
+                  I lost it
+                </button>
+              ) : null
+            )}
           </div>
 
           <p className="text-sm font-semibold mb-3" style={{ color: "#2C1414" }}>
@@ -1020,7 +1049,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
                 onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
                 onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
               >
-                I found this
+                I found it
               </button>
             </div>
           ) :
@@ -1042,7 +1071,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
                 onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
                 onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
               >
-                Prove it's yours
+                I lost it
               </button>
             </div>
           ) : item.status === "approved_for_pickup" ? (
@@ -1058,10 +1087,17 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
 
 // ─── Repost Card (feed + timeline) ──────────────────────────────────────────
 
-// Compact quoted version of an item, shown inside a repost.
+// Compact quoted version of an item, shown inside a repost. Clicking it opens
+// the original post's detail view.
 function QuotedItem({ item }: { item: Item }) {
+  const openDetail = useOpenDetail();
   return (
-    <div className="rounded-lg p-3 flex gap-3" style={{ background: "#FBF9D1", border: "1px solid #C1856D" }}>
+    <button
+      type="button"
+      onClick={() => openDetail(item)}
+      className="w-full text-left rounded-lg p-3 flex gap-3 transition-shadow hover:shadow-md"
+      style={{ background: "#FBF9D1", border: "1px solid #C1856D" }}
+    >
       <div className="flex flex-col gap-1 flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <Avatar id={item.finder_id} name={item.finder_name} size={18} />
@@ -1078,7 +1114,7 @@ function QuotedItem({ item }: { item: Item }) {
           <img src={item.image_url} alt={item.description} className="w-full h-full object-cover" />
         </div>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -1297,7 +1333,7 @@ function ChallengeModal({ item, onClose, onSubmit }: {
         <button onClick={onClose} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
           <IconArrowLeft /> Back
         </button>
-        <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>Prove it's yours</span>
+        <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>I lost this</span>
       </header>
 
       <div className="max-w-lg mx-auto px-4 py-6">
@@ -1455,6 +1491,71 @@ function ChallengeResponsesModal({ item, responses, verifiedIds, onClose, onAppr
   );
 }
 
+// ─── Lost-post responses (owner analytics) ──────────────────────────────────────
+// Lists the "I found this" reports on the owner's lost post; tapping one opens
+// the LostFlowModal (owner-answer or view outcome).
+function LostResponsesModal({ item, reports, verifiedIds, onClose, onOpenReport }: {
+  item: Item;
+  reports: ChallengeResponse[];
+  verifiedIds: Set<string>;
+  onClose: () => void;
+  onOpenReport: (reportId: string) => void;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const statusLabel: Record<string, { label: string; bg: string; color: string }> = {
+    awaiting_owner: { label: "Needs your answer", bg: "#FDF3EC", color: "#7A3A1A" },
+    answered: { label: "Awaiting finder", bg: "#F2EBE5", color: "#5C2020" },
+    approved: { label: "Approved", bg: "#F2EBE5", color: "#5C2020" },
+    rejected: { label: "Rejected", bg: "#F5ECEC", color: "#9A3F3F" },
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Responses">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full sm:max-w-lg max-h-[85vh] sm:max-h-[80vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-xl" style={{ background: "#FBF9D1" }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: "1px solid #C1856D" }}>
+          <div className="min-w-0">
+            <h3 className="font-semibold text-sm truncate" style={{ color: "#2C1414" }}>People who found this</h3>
+            <p className="text-xs truncate" style={{ color: "#9A7070" }}>{reports.length} on “{item.title}”</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ color: "#9A7070" }}><IconX /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto scroll-area px-4 py-3">
+          {reports.length === 0 ? (
+            <p className="text-sm py-8 text-center" style={{ color: "#9A7070" }}>No one has responded yet.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {reports.map(r => {
+                const s = statusLabel[r.status] ?? { label: r.status, bg: "#F5ECEC", color: "#6B3A3A" };
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => onOpenReport(r.id)}
+                    className="text-left rounded-xl p-4 flex items-center justify-between gap-2 transition-shadow hover:shadow-md"
+                    style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Avatar id={r.responder_id} name={r.responder_name} size={26} />
+                      <span className="text-sm font-semibold truncate" style={{ color: "#2C1414" }}>{r.responder_name}</span>
+                      {verifiedIds.has(r.responder_id) && <VerificationBadge size={12} />}
+                    </div>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: s.bg, color: s.color }}>{s.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── "I found this" flow (lost posts, Requirement 17) ───────────────────────────
 // Full-screen. Three modes derived from the current user + existing report:
 //   author        — finder writes questions + note (no report yet)
@@ -1510,6 +1611,7 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
   const title =
     mode === "author" ? "I found this" :
     mode === "owner-answer" ? "Verify it's yours" :
+    isOwner ? "Your submission" :
     "Review answers";
 
   return (
@@ -1536,7 +1638,7 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
               <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>
                 {mode === "author" && "Ask questions only the real owner can answer, then send it to them."}
                 {mode === "owner-answer" && "Someone found your item. Answer to prove it's yours."}
-                {mode === "finder-review" && "The owner's answers to your questions."}
+                {mode === "finder-review" && (isOwner ? "Your answers to the finder's questions." : "The owner's answers to your questions.")}
               </p>
               <p className="text-xs mt-1 font-medium" style={{ color: "#9A3F3F" }}>View post →</p>
             </div>
@@ -1620,14 +1722,25 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
                     <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Note from the owner</label>
                     <textarea value={report.owner_note || "—"} readOnly rows={3} className={inputCls + " resize-none"} />
                   </div>
-                  {report.status === "answered" ? (
+                  {report.status === "answered" && !isOwner ? (
+                    // Only the finder decides.
                     <div className="flex gap-3 pt-2">
                       <button onClick={() => { onApprove(report.id); onClose(); }} className="flex-1 py-2.5 text-sm font-semibold rounded-lg" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>Approve — it's them</button>
                       <button onClick={() => { onReject(report.id); onClose(); }} className="flex-1 py-2.5 text-sm font-semibold rounded-lg" style={{ border: "1px solid #C1856D", color: "#9A3F3F", background: "transparent" }}>Reject</button>
                     </div>
+                  ) : report.status === "answered" ? (
+                    // Owner is waiting on the finder's decision.
+                    <p className="text-sm font-semibold text-center py-2" style={{ color: "#9A7070" }}>
+                      Waiting for {report.responder_name} to review your answers…
+                    </p>
                   ) : (
+                    // Outcome, phrased for whoever is viewing.
                     <p className="text-sm font-semibold text-center py-2" style={{ color: "#9A3F3F" }}>
-                      {report.status === "approved" ? "You approved this owner." : "You rejected this."}
+                      {isOwner
+                        ? (report.status === "approved"
+                            ? `${report.responder_name} approved you — they'll arrange the return.`
+                            : `${report.responder_name} didn't approve this.`)
+                        : (report.status === "approved" ? "You approved this owner." : "You rejected this.")}
                     </p>
                   )}
                 </>
@@ -2131,7 +2244,7 @@ function FinderForm({ onSubmit }: {
         <div className="rounded-lg p-4" style={{ background: "#F5ECEC", border: "1px dashed #C1856D" }}>
           <label className="block text-sm font-semibold mb-1" style={{ color: "#2C1414" }}>Ownership challenge (optional)</label>
           <p className="text-xs mb-3" style={{ color: "#6B3A3A" }}>
-            Add questions only the real owner could answer (e.g. "What's the serial number?", "What's inside?"). Claimants answer these when they tap "Prove it's yours".
+            Add questions only the real owner could answer (e.g. "What's the serial number?", "What's inside?"). Claimants answer these when they tap "I lost this".
           </p>
           {challengeQs.length > 0 && (
             <div className="flex flex-col gap-2 mb-2">
@@ -2529,8 +2642,9 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
   const canCreate = role !== "staff";
   const [menuOpen, setMenuOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
-  // On mobile, focusing the search hides the wordmark so the field gets full width.
+  // Search starts collapsed (just the icon); clicking the icon expands it.
   const [searchFocused, setSearchFocused] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   function go(v: View) {
     setView(v);
@@ -2546,120 +2660,137 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
         </div>
       )}
 
-      {/* Top row: menu · brand · centered search · + create · avatar */}
+      {/* Top row — two states: collapsed (icon) and expanded (full search) */}
       <div className="max-w-5xl mx-auto px-4 flex items-center gap-3 h-14">
-        <button
-          onClick={() => setMenuOpen(true)}
-          className="inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
-          style={{ color: "#2C1414" }}
-          aria-label="Open menu"
-          title="Menu"
-        >
-          <IconMenu />
-        </button>
-        <button
-          onClick={() => setView("catalog")}
-          className={(searchFocused ? "hidden sm:flex" : "flex") + " items-center gap-2 shrink-0"}
-          aria-label="Home"
-        >
-          <span className="font-semibold text-2xl block" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
-            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
-          </span>
-        </button>
+        {!searchFocused && (
+          <button
+            onClick={() => setMenuOpen(true)}
+            className="inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
+            style={{ color: "#2C1414" }}
+            aria-label="Open menu"
+            title="Menu"
+          >
+            <IconMenu />
+          </button>
+        )}
 
-        {/* Centered search with a filter icon on the right */}
-        <div className="relative flex-1 max-w-xl mx-auto">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "#9A7070" }}>
+        {!searchFocused && (
+          <button
+            onClick={() => setView("catalog")}
+            className="flex items-center gap-2 shrink-0"
+            aria-label="Home"
+          >
+            <span className="font-semibold text-2xl block" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
+              <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
+            </span>
+          </button>
+        )}
+
+        {/* Collapsed: magnifier icon only */}
+        {!searchFocused ? (
+          <button
+            onClick={() => { setSearchFocused(true); setTimeout(() => searchInputRef.current?.focus(), 30); }}
+            className="ml-auto inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
+            style={{ color: "#2C1414" }}
+            aria-label="Open search"
+            title="Search"
+          >
             <IconSearch />
-          </span>
-          <input
-            type="text"
-            value={search}
-            onChange={e => { setSearch(e.target.value); if (view !== "catalog") setView("catalog"); }}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
-            placeholder="Search"
-            className="w-full pl-9 pr-16 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
-            style={{ background: "#F7EDE6", borderColor: "#C1856D", color: "#2C1414" }}
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute right-9 top-1/2 -translate-y-1/2"
-              style={{ color: "#9A7070" }}
-              aria-label="Clear search"
-              title="Clear search"
-            >
-              <IconX />
-            </button>
-          )}
-          {/* Filter icon (rightmost, inside the field) */}
-          <button
-            onClick={() => setFilterOpen(o => !o)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
-            style={{ color: categoryFilter !== "All" ? "#9A3F3F" : "#9A7070" }}
-            aria-label="Filter by category"
-            title="Filter by category"
-            aria-expanded={filterOpen}
-          >
-            <IconFilter />
           </button>
-          {filterOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
-              <div
-                className="absolute right-0 mt-2 z-50 w-48 rounded-lg py-1 shadow-xl"
-                style={{ background: "#FBF9D1", border: "1px solid #C1856D" }}
-              >
-                {CATEGORIES.map(c => (
-                  <button
-                    key={c}
-                    onClick={() => { setCategoryFilter(c); setFilterOpen(false); if (view !== "catalog") setView("catalog"); }}
-                    className="w-full text-left px-3 py-2 text-sm transition-colors"
-                    style={c === categoryFilter
-                      ? { background: "#E6CFA9", color: "#9A3F3F", fontWeight: 600 }
-                      : { color: "#2C1414" }
-                    }
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {canCreate && (
-            <button
-              onClick={() => setView("log")}
-              className="inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors"
-              style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-              onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
-              onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
-              aria-label="Log a found item"
-              title="Log a found item"
-            >
-              <IconPlus />
-            </button>
-          )}
-          <button
-            onClick={() => setView("notifications")}
-            className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
-            style={{ color: view === "notifications" ? "#9A3F3F" : "#2C1414" }}
-            aria-label="Notifications"
-            title="Notifications"
-          >
-            <IconBell />
-            {unreadCount > 0 && (
-              <span
-                className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center"
-                style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-              >
-                {unreadCount > 9 ? "9+" : unreadCount}
+        ) : (
+          /* Expanded: full-width search input takes the whole row */
+          <div className="flex items-center gap-2 flex-1">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "#9A7070" }}>
+                <IconSearch />
               </span>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={search}
+                onChange={e => { setSearch(e.target.value); if (view !== "catalog") setView("catalog"); }}
+                onBlur={() => { if (!search.trim()) setSearchFocused(false); }}
+                placeholder="Search"
+                className="w-full pl-9 pr-16 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
+                style={{ background: "transparent", borderColor: "#C1856D", color: "#2C1414" }}
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-9 top-1/2 -translate-y-1/2"
+                  style={{ color: "#9A7070" }}
+                  aria-label="Clear search"
+                >
+                  <IconX />
+                </button>
+              )}
+              <button
+                onClick={() => setFilterOpen(o => !o)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+                style={{ color: categoryFilter !== "All" ? "#9A3F3F" : "#9A7070" }}
+                aria-label="Filter by category"
+                aria-expanded={filterOpen}
+              >
+                <IconFilter />
+              </button>
+              {filterOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
+                  <div className="absolute right-0 mt-2 z-50 w-48 rounded-lg py-1 shadow-xl" style={{ background: "#FBF9D1", border: "1px solid #C1856D" }}>
+                    {CATEGORIES.map(c => (
+                      <button
+                        key={c}
+                        onClick={() => { setCategoryFilter(c); setFilterOpen(false); if (view !== "catalog") setView("catalog"); }}
+                        className="w-full text-left px-3 py-2 text-sm transition-colors"
+                        style={c === categoryFilter ? { background: "#E6CFA9", color: "#9A3F3F", fontWeight: 600 } : { color: "#2C1414" }}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <button
+              onClick={() => { setSearchFocused(false); setSearch(""); setFilterOpen(false); }}
+              className="text-sm font-medium shrink-0 transition-colors hover:opacity-70"
+              style={{ color: "#6B3A3A" }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Right controls — hidden when search is expanded */}
+        {!searchFocused && (
+          <div className="flex items-center gap-2 shrink-0">
+            {canCreate && (
+              <button
+                onClick={() => setView("log")}
+                className="inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors"
+                style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
+                onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
+                aria-label="Log a found item"
+                title="Log a found item"
+              >
+                <IconPlus />
+              </button>
             )}
-          </button>
+            <button
+              onClick={() => setView("notifications")}
+              className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
+              style={{ color: view === "notifications" ? "#9A3F3F" : "#2C1414" }}
+              aria-label="Notifications"
+              title="Notifications"
+            >
+              <IconBell />
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </button>
           <button
             onClick={() => setView("profile")}
             className="rounded-full transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2"
@@ -2680,6 +2811,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
             )}
           </button>
         </div>
+        )}
       </div>
 
       {/* Left sidebar drawer */}
@@ -3148,7 +3280,9 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
             entry.kind === "post" ? (
               <div key={entry.item.id} className="flex flex-col gap-2">
                 <ItemCard item={entry.item} role={user.role} />
-                {entry.item.challenge && entry.item.challenge.length > 0 && (
+                {/* Found posts with a challenge, and every lost post, get a
+                    Responses view so the poster can review who responded. */}
+                {((entry.item.kind !== "lost" && entry.item.challenge && entry.item.challenge.length > 0) || entry.item.kind === "lost") && (
                   <button
                     onClick={() => onViewResponses(entry.item)}
                     className={btnSecondary + " inline-flex items-center gap-1.5 self-start"}
@@ -3224,6 +3358,7 @@ export default function App() {
   const [responsesItem, setResponsesItem] = useState<Item | null>(null); // finder viewing responses
   const [detailItem, setDetailItem] = useState<Item | null>(null); // full-screen post detail
   const [foundThisItem, setFoundThisItem] = useState<Item | null>(null); // lost-post "I found this" flow
+  const [foundThisReportId, setFoundThisReportId] = useState<string | null>(null); // specific report to open (owner picking from list)
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [offlineQueueCount] = useState(0);
@@ -3670,7 +3805,10 @@ export default function App() {
             notifications={myNotifications}
             onOpen={n => {
               const it = items.find(i => i.id === n.item_id);
-              if (it) { if (it.kind === "lost") setFoundThisItem(it); else setDetailItem(it); }
+              if (it) {
+                if (it.kind === "lost") { setFoundThisReportId(n.response_id ?? null); setFoundThisItem(it); }
+                else setDetailItem(it);
+              }
             }}
           />
         )}
@@ -3687,15 +3825,25 @@ export default function App() {
         />
       )}
       {responsesItem && (
-        <ChallengeResponsesModal
-          item={responsesItem}
-          responses={challengeResponses.filter(r => r.item_id === responsesItem.id)}
-          verifiedIds={verifiedIds}
-          onClose={() => setResponsesItem(null)}
-          onApprove={id => handleChallengeDecision(id, "approved")}
-          onReject={id => handleChallengeDecision(id, "rejected")}
-          onEscalate={handleEscalateChallengeResponse}
-        />
+        responsesItem.kind === "lost" ? (
+          <LostResponsesModal
+            item={responsesItem}
+            reports={challengeResponses.filter(r => r.item_id === responsesItem.id && r.kind === "lost")}
+            verifiedIds={verifiedIds}
+            onClose={() => setResponsesItem(null)}
+            onOpenReport={reportId => { const it = responsesItem; setResponsesItem(null); setFoundThisReportId(reportId); setFoundThisItem(it); }}
+          />
+        ) : (
+          <ChallengeResponsesModal
+            item={responsesItem}
+            responses={challengeResponses.filter(r => r.item_id === responsesItem.id)}
+            verifiedIds={verifiedIds}
+            onClose={() => setResponsesItem(null)}
+            onApprove={id => handleChallengeDecision(id, "approved")}
+            onReject={id => handleChallengeDecision(id, "rejected")}
+            onEscalate={handleEscalateChallengeResponse}
+          />
+        )
       )}
       {repostingItem && (
         <RepostDialog
@@ -3714,17 +3862,23 @@ export default function App() {
           onBack={() => setDetailItem(null)}
           onAddComment={(msg, visibility) => handleAddComment(activeDetailItem.id, msg, visibility)}
           onAddReply={(commentId, msg) => handleAddReply(activeDetailItem.id, commentId, msg)}
+          onClaim={handleClaimClick}
         />
       )}
       {foundThisItem && user && (
         <LostFlowModal
           item={foundThisItem}
           currentUserId={user.id}
-          report={challengeResponses.find(r =>
-            r.item_id === foundThisItem.id && r.kind === "lost" &&
-            (r.responder_id === user.id || r.owner_id === user.id),
-          )}
-          onClose={() => setFoundThisItem(null)}
+          report={
+            // Prefer an explicitly chosen report (owner picking from the list or
+            // opening a notification); else find this user's own report.
+            (foundThisReportId && challengeResponses.find(r => r.id === foundThisReportId)) ||
+            challengeResponses.find(r =>
+              r.item_id === foundThisItem.id && r.kind === "lost" &&
+              (r.responder_id === user.id || r.owner_id === user.id),
+            )
+          }
+          onClose={() => { setFoundThisItem(null); setFoundThisReportId(null); }}
           onSubmitReport={handleSubmitFoundReport}
           onOwnerAnswer={handleOwnerAnswer}
           onApprove={id => handleChallengeDecision(id, "approved")}
