@@ -268,6 +268,50 @@ answered and decide — or hand the decision to staff.
 8. WHERE an item has no Ownership Challenge, "Prove it's yours" still applies but
    collects only the note; the response has no answers. The finder reviews and
    decides (or sends to staff) the same way.
+9. WHERE the post is a **lost** item (`kind: "lost"`) THE system SHALL NOT show
+   "Prove it's yours"; instead it SHALL show **"I found this"** (Requirement 17).
+
+### Requirement 17 — "I found this" on a lost post (finder verifies the owner)
+
+**User story:** As someone who found an item that another user reported lost, I
+want to reach out and verify they are the real owner by asking my own questions,
+so I can safely return it.
+
+#### Acceptance Criteria
+1. WHERE a post is a lost item AND the current user is not its owner THE system
+   SHALL show an **"I found this"** action.
+2. WHEN a user activates "I found this" THEN the system SHALL open a form where
+   the finder authors **their own challenge questions** (short text) and an
+   optional **note**, then submits a **found report** with status
+   `awaiting_owner`.
+3. WHEN a found report is submitted THEN the system SHALL notify the lost post's
+   **owner** (Requirement 18) that someone found their item and needs them to
+   answer to verify.
+4. WHEN the owner opens the found report THEN the system SHALL show the finder's
+   questions with answer fields; the owner fills the answers and submits, moving
+   the report to `answered`.
+5. WHEN the owner answers THEN the system SHALL notify the **finder** that the
+   owner responded.
+6. WHEN the finder reopens "I found this" (or the report from a notification)
+   THEN the system SHALL show the owner's submitted answers, and let the finder
+   **Approve** (→ `approved`) or **Reject** (→ `rejected`).
+7. THE found report SHALL be visible only to the finder who created it and the
+   lost post's owner.
+
+### Requirement 18 — Notifications
+
+**User story:** As a user, I want to be notified when there's activity that needs
+me (someone found my lost item, or an owner answered my questions), so I can act.
+
+#### Acceptance Criteria
+1. THE system SHALL create a notification for the relevant recipient when: a
+   found report is submitted on their lost post; the owner answers a found
+   report's questions; or the finder approves/rejects a found report.
+2. THE app SHALL provide a **Notifications** view listing the current user's
+   notifications newest-first, each with a message and relative time, and a way
+   to open the related post.
+3. THE navigation SHALL show a notifications control with an **unread count**
+   indicator; opening the Notifications view SHALL mark them read.
 
 ### Requirement 7 — Private claim thread
 

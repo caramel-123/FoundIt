@@ -9,8 +9,9 @@ import {
   isDbEnabled, listItems, createItem, subscribeItems,
   listComments, insertComment, subscribeComments,
   listReposts, upsertRepost, removeRepost, subscribeReposts,
-  listChallengeResponses, insertChallengeResponse, updateChallengeResponseStatus, subscribeChallengeResponses,
+  listChallengeResponses, insertChallengeResponse, updateChallengeResponseStatus, updateChallengeResponseAnswers, subscribeChallengeResponses,
   listVerifications, upsertVerification, subscribeVerifications,
+  listNotifications, insertNotification, markNotificationsReadDb, subscribeNotifications,
 } from "./lib/db";
 
 // ─── Client-side persistence (Requirement 14) ───────────────────────────────────
@@ -106,16 +107,32 @@ interface ChallengeAnswer {
   answer: string;
 }
 
-type ChallengeResponseStatus = "pending" | "approved" | "rejected" | "escalated";
+// "found" flow: someone claims a found item (responder answers finder's Qs).
+// "lost" flow: someone found a lost-post item (finder authors Qs, owner answers).
+type ChallengeResponseStatus = "pending" | "approved" | "rejected" | "escalated" | "awaiting_owner" | "answered";
 
 interface ChallengeResponse {
   id: string;
+  kind?: "found" | "lost"; // which flow; defaults to "found"
   item_id: string;
-  responder_id: string;
+  responder_id: string;   // found: the claimant; lost: the finder who reported
   responder_name: string;
+  owner_id?: string;      // lost flow: the lost post's owner (who must answer)
   answers: ChallengeAnswer[];
-  note?: string; // optional note to the finder
+  note?: string;
   status: ChallengeResponseStatus;
+  created_at: string;
+}
+
+// ─── Notifications (Requirement 18) ─────────────────────────────────────────────
+
+interface AppNotification {
+  id: string;
+  recipient_id: string;
+  message: string;
+  item_id?: string;       // post to open when clicked
+  response_id?: string;   // related found/challenge report
+  read: boolean;
   created_at: string;
 }
 
@@ -240,22 +257,27 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 function relativeDate(iso: string) {
-  const now = new Date("2026-09-12T12:00:00Z").getTime();
+  const now = Date.now();
   const then = new Date(iso).getTime();
   const diff = now - then;
-  const hours = Math.floor(diff / 3600000);
-  if (hours < 1) return "just now";
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
-// Relative label up to 7 days, then falls back to the full date (e.g. "Sep 14, 2026")
+// Relative label up to 7 days, then falls back to the full date (e.g. "Sep 14, 2026").
+// Uses the real current time so timestamps stay accurate.
 function postedLabel(iso: string) {
-  const now = new Date("2026-09-12T12:00:00Z").getTime();
+  const now = Date.now();
   const then = new Date(iso).getTime();
   const diff = now - then;
-  const hours = Math.floor(diff / 3600000);
-  if (hours < 1) return "just now";
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days <= 7) return `${days}d ago`;
@@ -374,6 +396,15 @@ function useOpenDetail(): (item: Item) => void {
   return useContext(OpenDetailContext);
 }
 
+// Lost-flow ("I found this") context: current user id + opener, to avoid drilling.
+const LostFlowContext = createContext<{ currentUserId: string | null; onFoundThis: (item: Item) => void }>({
+  currentUserId: null,
+  onFoundThis: () => {},
+});
+function useLostFlow() {
+  return useContext(LostFlowContext);
+}
+
 function ClaimBadge({ status }: { status: ClaimStatus }) {
   const styles: Record<ClaimStatus, { bg: string; text: string; border: string }> = {
     pending_review: { bg: "#FDF3EC", text: "#7A3A1A", border: "#E8C4AD" },
@@ -442,6 +473,15 @@ function IconSearch() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="11" cy="11" r="8"/>
       <path d="m21 21-4.35-4.35"/>
+    </svg>
+  );
+}
+
+function IconBell() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+      <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
     </svg>
   );
 }
@@ -864,6 +904,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
 }) {
   const commentList = comments ?? [];
   const openDetail = useOpenDetail();
+  const lostFlow = useLostFlow();
 
   return (
     <div className="flex flex-col gap-3 py-4 transition-colors"
@@ -925,10 +966,20 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
         repostCount={repostCount}
         onShare={onShare}
         extra={
-          // Every found item (any non-released status) shows "Prove it's yours"
-          // for non-staff. With a challenge → answer questions + note; without →
-          // note only. The count shows how many have responded.
-          role !== "staff" && onClaim && item.status !== "released" ? (
+          // Lost post → "I found this" (not shown to the owner who posted it).
+          item.kind === "lost" && lostFlow.currentUserId && item.finder_id !== lostFlow.currentUserId ? (
+            <button
+              onClick={() => lostFlow.onFoundThis(item)}
+              className="ml-auto px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
+              style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
+              onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
+            >
+              I found this
+            </button>
+          ) :
+          // "Prove it's yours" applies only to FOUND items.
+          item.kind !== "lost" && role !== "staff" && onClaim && item.status !== "released" ? (
             <div className="ml-auto flex items-center gap-2">
               <span
                 className="flex items-center gap-1 text-xs font-medium"
@@ -1291,6 +1342,8 @@ function ChallengeResponsesModal({ item, responses, verifiedIds, onClose, onAppr
     approved: { label: "Approved", bg: "#F2EBE5", color: "#5C2020" },
     rejected: { label: "Rejected", bg: "#F5ECEC", color: "#9A3F3F" },
     escalated: { label: "Sent to staff", bg: "#F5ECEC", color: "#9A3F3F" },
+    awaiting_owner: { label: "Awaiting owner", bg: "#FDF3EC", color: "#7A3A1A" },
+    answered: { label: "Answered", bg: "#F2EBE5", color: "#5C2020" },
   };
 
   return (
@@ -1350,6 +1403,174 @@ function ChallengeResponsesModal({ item, responses, verifiedIds, onClose, onAppr
               })}
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── "I found this" flow (lost posts, Requirement 17) ───────────────────────────
+// Full-screen. Three modes derived from the current user + existing report:
+//   author        — finder writes questions + note (no report yet)
+//   owner-answer   — the lost post's owner fills the finder's questions
+//   finder-review  — finder reads the owner's answers, approves/rejects
+function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, onOwnerAnswer, onApprove, onReject }: {
+  item: Item;
+  currentUserId: string;
+  report?: ChallengeResponse; // existing report for (this item, this finder) if any
+  onClose: () => void;
+  onSubmitReport: (item: Item, questions: ChallengeQuestion[], note: string) => void;
+  onOwnerAnswer: (responseId: string, answers: ChallengeAnswer[]) => void;
+  onApprove: (responseId: string) => void;
+  onReject: (responseId: string) => void;
+}) {
+  const isOwner = currentUserId === item.finder_id;
+  const mode: "author" | "owner-answer" | "finder-review" =
+    !report ? "author" : (isOwner && report.status === "awaiting_owner") ? "owner-answer" : "finder-review";
+
+  // author state
+  const [qs, setQs] = useState<ChallengeQuestion[]>([]);
+  const [note, setNote] = useState("");
+  // owner-answer state
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function addQ() { setQs(v => [...v, { id: `q${Date.now()}${v.length}`, prompt: "" }]); }
+  function updateQ(id: string, prompt: string) { setQs(v => v.map(q => q.id === id ? { ...q, prompt } : q)); }
+  function removeQ(id: string) { setQs(v => v.filter(q => q.id !== id)); }
+
+  function submitAuthor(e: React.FormEvent) {
+    e.preventDefault();
+    onSubmitReport(item, qs, note);
+    setSubmitted(true);
+  }
+  function submitOwnerAnswers(e: React.FormEvent) {
+    e.preventDefault();
+    if (!report) return;
+    const filled = report.answers.map(a => ({ ...a, answer: (answers[a.question_id] ?? "").trim() }));
+    if (filled.some(a => !a.answer)) return;
+    onOwnerAnswer(report.id, filled);
+    setSubmitted(true);
+  }
+
+  const title =
+    mode === "author" ? "I found this" :
+    mode === "owner-answer" ? "Verify it's yours" :
+    "Review answers";
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "#FBF9D1" }}>
+      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FBF9D1", borderBottom: "1px solid #C1856D" }}>
+        <button onClick={onClose} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
+          <IconArrowLeft /> Back
+        </button>
+        <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>{title}</span>
+      </header>
+
+      <div className="flex-1 overflow-y-auto scroll-area">
+        <div className="max-w-lg mx-auto px-4 py-6">
+          {/* Item context */}
+          <div className="rounded-xl p-4 mb-6 flex items-start gap-3" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+            {item.image_url && <img src={item.image_url} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />}
+            <div className="min-w-0">
+              <p className="font-semibold text-sm" style={{ color: "#2C1414" }}>{item.title}</p>
+              <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>
+                {mode === "author" && "Ask questions only the real owner can answer, then send it to them."}
+                {mode === "owner-answer" && "Someone found your item. Answer to prove it's yours."}
+                {mode === "finder-review" && "The owner's answers to your questions."}
+              </p>
+            </div>
+          </div>
+
+          {submitted ? (
+            <div className="text-center py-12">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "#F2EBE5" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9A3F3F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <p className="font-semibold" style={{ color: "#2C1414" }}>{mode === "author" ? "Sent to the owner" : "Answers submitted"}</p>
+              <p className="mt-2 text-sm" style={{ color: "#6B3A3A" }}>You'll get a notification when there's an update.</p>
+              <button onClick={onClose} className={btnPrimary + " mt-6"}>Done</button>
+            </div>
+          ) : mode === "author" ? (
+            <form onSubmit={submitAuthor} className="flex flex-col gap-5">
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={{ color: "#2C1414" }}>Verification questions</label>
+                <p className="text-xs mb-3" style={{ color: "#6B3A3A" }}>Ask something only the owner would know (e.g. "What's the lock-screen photo?", "Any stickers?").</p>
+                {qs.length > 0 && (
+                  <div className="flex flex-col gap-2 mb-2">
+                    {qs.map((q, i) => (
+                      <div key={q.id} className="flex items-center gap-2">
+                        <span className="text-xs font-semibold w-4 shrink-0" style={{ color: "#9A3F3F" }}>{i + 1}.</span>
+                        <input type="text" value={q.prompt} onChange={e => updateQ(q.id, e.target.value)} placeholder="Type a question…" className={inputCls + " flex-1"} />
+                        <button type="button" onClick={() => removeQ(q.id)} aria-label="Remove" className="shrink-0 p-1.5" style={{ color: "#9A7070" }}><IconX /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button type="button" onClick={addQ} className={btnSecondary + " inline-flex items-center gap-1.5"}>
+                  <span className="text-base leading-none">+</span> Add question
+                </button>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Note to the owner (optional)</label>
+                <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} className={inputCls + " resize-none"} placeholder="Where you found it, how to reach you, etc." />
+              </div>
+              <button type="submit" className={btnPrimary + " w-full py-3"}>Send to owner</button>
+            </form>
+          ) : mode === "owner-answer" && report ? (
+            <form onSubmit={submitOwnerAnswers} className="flex flex-col gap-5">
+              {report.note && (
+                <div className="rounded-lg p-3 text-sm" style={{ background: "#F5ECEC", border: "1px solid #C1856D", color: "#2C1414" }}>
+                  <span className="font-semibold">Note from {report.responder_name}: </span>{report.note}
+                </div>
+              )}
+              {report.answers.map((a, i) => (
+                <div key={a.question_id}>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt} <span style={{ color: "#9A3F3F" }}>*</span></label>
+                  <input type="text" value={answers[a.question_id] ?? ""} onChange={e => setAnswers(v => ({ ...v, [a.question_id]: e.target.value }))} className={inputCls} required />
+                </div>
+              ))}
+              <button type="submit" className={btnPrimary + " w-full py-3"}>Submit answers</button>
+            </form>
+          ) : report ? (
+            <div className="flex flex-col gap-4">
+              {report.note && (
+                <div className="rounded-lg p-3 text-sm" style={{ background: "#F5ECEC", border: "1px solid #C1856D", color: "#2C1414" }}>
+                  <span className="font-semibold">Your note: </span>{report.note}
+                </div>
+              )}
+              {report.status === "awaiting_owner" ? (
+                <p className="text-sm py-8 text-center" style={{ color: "#9A7070" }}>Waiting for the owner to answer your questions…</p>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-2">
+                    {report.answers.map(a => (
+                      <div key={a.question_id} className="rounded-lg p-3" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+                        <p className="text-xs font-medium" style={{ color: "#6B3A3A" }}>{a.prompt}</p>
+                        <p className="text-sm mt-0.5" style={{ color: "#2C1414" }}>{a.answer || "—"}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {report.status === "answered" ? (
+                    <div className="flex gap-3 pt-2">
+                      <button onClick={() => { onApprove(report.id); onClose(); }} className="flex-1 py-2.5 text-sm font-semibold rounded-lg" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>Approve — it's them</button>
+                      <button onClick={() => { onReject(report.id); onClose(); }} className="flex-1 py-2.5 text-sm font-semibold rounded-lg" style={{ border: "1px solid #C1856D", color: "#9A3F3F", background: "transparent" }}>Reject</button>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-semibold text-center py-2" style={{ color: "#9A3F3F" }}>
+                      {report.status === "approved" ? "You approved this owner." : "You rejected this."}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1491,6 +1712,17 @@ function FinderForm({ onSubmit }: {
       const anyFilled = Boolean(parsed.title || parsed.category || parsed.location_found || parsed.description);
       if (!anyFilled) {
         setImportMsg("Couldn't pull details from that text. Try adding more, or fill the fields manually.");
+      } else if (mode === "lost") {
+        // Lost mode: map the parsed fields onto the lost form (location → where lost).
+        setLostForm(f => ({
+          ...f,
+          title: parsed.title || f.title,
+          category: parsed.category || f.category,
+          location_lost: parsed.location_found || f.location_lost,
+          description: parsed.description || f.description,
+          time_lost: f.time_lost || nowForDateTimeLocal(),
+        }));
+        setImportMsg("Filled from caption. Review the fields before posting.");
       } else {
         setForm(f => ({
           ...f,
@@ -1592,7 +1824,7 @@ function FinderForm({ onSubmit }: {
               : "Lost something? Post a notice so it's on record if it's turned in."}
           </p>
         </div>
-        {mode === "found" && !showCaptionImport && (
+        {!showCaptionImport && (
           <button
             type="button"
             onClick={() => setShowCaptionImport(true)}
@@ -2208,9 +2440,9 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
 
 // ─── Nav ──────────────────────────────────────────────────────────────────────
 
-type View = "catalog" | "log" | "claims" | "profile" | "staff";
+type View = "catalog" | "log" | "claims" | "profile" | "staff" | "notifications";
 
-function Nav({ view, setView, role, user, search, setSearch, categoryFilter, setCategoryFilter, offlineQueueCount }: {
+function Nav({ view, setView, role, user, search, setSearch, categoryFilter, setCategoryFilter, offlineQueueCount, unreadCount }: {
   view: View;
   setView: (v: View) => void;
   role: Role;
@@ -2220,11 +2452,13 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
   categoryFilter: string;
   setCategoryFilter: (c: string) => void;
   offlineQueueCount: number;
+  unreadCount: number;
 }) {
   const navItems: { id: View; label: string; roles: Role[] }[] = [
     { id: "catalog", label: "Catalog", roles: ["finder", "owner", "staff"] },
     { id: "log", label: "Log Item", roles: ["finder", "owner"] },
     { id: "claims", label: "My Claims", roles: ["owner"] },
+    { id: "notifications", label: "Notifications", roles: ["finder", "owner", "staff"] },
     { id: "staff", label: "Staff", roles: ["staff"] },
   ];
 
@@ -2346,6 +2580,23 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
               <IconPlus />
             </button>
           )}
+          <button
+            onClick={() => setView("notifications")}
+            className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
+            style={{ color: view === "notifications" ? "#9A3F3F" : "#2C1414" }}
+            aria-label="Notifications"
+            title="Notifications"
+          >
+            <IconBell />
+            {unreadCount > 0 && (
+              <span
+                className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center"
+                style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+              >
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setView("profile")}
             className="rounded-full transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2"
@@ -2720,6 +2971,9 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
       .map(r => ({ kind: "repost" as const, created_at: r.created_at, repost: r, item: items.find(i => i.id === r.item_id) })),
   ].sort((a, b) => b.created_at.localeCompare(a.created_at));
   const empty = feed.length === 0;
+  const postCount = feed.filter(e => e.kind === "post").length;
+  const repostCount = feed.filter(e => e.kind === "repost").length;
+  const isVerified = verifiedIds.has(user.id);
 
   const [docType, setDocType] = useState<DocType>("student_id");
   const [verifyBusy, setVerifyBusy] = useState(false);
@@ -2745,23 +2999,40 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="rounded-xl p-5 mb-6 flex items-center gap-4" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-        {user.avatar_url ? (
-          <img src={user.avatar_url} alt="" className="w-14 h-14 rounded-full object-cover" />
-        ) : (
-          <span className="inline-flex items-center justify-center w-14 h-14 rounded-full text-lg font-semibold shrink-0" style={{ background: "#9A3F3F", color: "#FBF9D1" }} aria-hidden="true">
-            {user.name.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase()}
-          </span>
-        )}
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold flex items-center gap-1.5" style={{ color: "#2C1414" }}>
-            {user.name}
-            {verifiedIds.has(user.id) && <VerificationBadge size={18} />}
-          </h1>
-          <p className="text-sm truncate" style={{ color: "#6B3A3A" }}>{user.email}</p>
+      {/* Header — Reddit-style profile */}
+      <div className="mb-6">
+        <div className="flex items-start justify-between gap-4">
+          {user.avatar_url ? (
+            <img src={user.avatar_url} alt="" className="w-20 h-20 rounded-full object-cover" />
+          ) : (
+            <span className="inline-flex items-center justify-center w-20 h-20 rounded-full text-2xl font-semibold shrink-0" style={{ background: "#9A3F3F", color: "#FBF9D1" }} aria-hidden="true">
+              {user.name.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase()}
+            </span>
+          )}
+          <button onClick={onSignOut} className={btnSecondary + " shrink-0"}>Sign out</button>
         </div>
-        <button onClick={onSignOut} className={btnSecondary}>Sign out</button>
+
+        <h1 className="mt-4 text-2xl font-bold flex items-center gap-2" style={{ color: "#2C1414" }}>
+          {user.name}
+          {isVerified && <VerificationBadge size={20} />}
+        </h1>
+        <p className="mt-0.5 text-sm truncate" style={{ color: "#6B3A3A" }}>{user.email}</p>
+
+        {/* Stats row */}
+        <div className="mt-4 flex items-stretch rounded-xl overflow-hidden" style={{ border: "1px solid #C1856D", background: "#E6CFA9" }}>
+          <div className="flex-1 px-4 py-3 text-center">
+            <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{postCount}</p>
+            <p className="text-xs" style={{ color: "#6B3A3A" }}>{postCount === 1 ? "Post" : "Posts"}</p>
+          </div>
+          <div className="flex-1 px-4 py-3 text-center" style={{ borderLeft: "1px solid #C1856D" }}>
+            <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{repostCount}</p>
+            <p className="text-xs" style={{ color: "#6B3A3A" }}>{repostCount === 1 ? "Repost" : "Reposts"}</p>
+          </div>
+          <div className="flex-1 px-4 py-3 text-center" style={{ borderLeft: "1px solid #C1856D" }}>
+            <p className="text-lg font-bold" style={{ color: isVerified ? "#9A3F3F" : "#9A7070" }}>{isVerified ? "Yes" : "No"}</p>
+            <p className="text-xs" style={{ color: "#6B3A3A" }}>Verified</p>
+          </div>
+        </div>
       </div>
 
       {/* Student verification (Requirement 15) — hidden once verified */}
@@ -2834,6 +3105,43 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
   );
 }
 
+// ─── Notifications View (Requirement 18) ────────────────────────────────────────
+
+function NotificationsView({ notifications, onOpen }: {
+  notifications: AppNotification[];
+  onOpen: (n: AppNotification) => void;
+}) {
+  return (
+    <div className="max-w-2xl mx-auto px-4 py-6">
+      <h1 className="text-2xl font-semibold mb-4" style={{ color: "#2C1414" }}>Notifications</h1>
+      {notifications.length === 0 ? (
+        <div className="text-center py-16 rounded-xl" style={{ border: "1px dashed #C1856D" }}>
+          <p className="text-sm font-medium" style={{ color: "#6B3A3A" }}>Nothing yet</p>
+          <p className="text-xs mt-1" style={{ color: "#9A7070" }}>Updates about your posts and found reports will show up here.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col">
+          {notifications.map(n => (
+            <button
+              key={n.id}
+              onClick={() => onOpen(n)}
+              className="text-left py-4 flex items-start gap-3 transition-colors"
+              style={{ borderBottom: "1px solid #C1856D" }}
+            >
+              <span className="mt-0.5 shrink-0" style={{ color: n.read ? "#9A7070" : "#9A3F3F" }}><IconBell /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm leading-snug" style={{ color: "#2C1414", fontWeight: n.read ? 400 : 600 }}>{n.message}</p>
+                <p className="text-xs mt-0.5" style={{ color: "#9A7070" }}>{postedLabel(n.created_at)}</p>
+              </div>
+              {!n.read && <span className="mt-1.5 w-2 h-2 rounded-full shrink-0" style={{ background: "#9A3F3F" }} aria-label="Unread" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -2847,10 +3155,12 @@ export default function App() {
   const [comments, setComments] = usePersistentState<Record<string, ItemComment[]>>("comments", {});
   const [verifications, setVerifications] = usePersistentState<Record<string, StudentVerification>>("verifications", {});
   const [challengeResponses, setChallengeResponses] = usePersistentState<ChallengeResponse[]>("challengeResponses", []);
+  const [notifications, setNotifications] = usePersistentState<AppNotification[]>("notifications", []);
   const [repostingItem, setRepostingItem] = useState<Item | null>(null);
   const [challengeItem, setChallengeItem] = useState<Item | null>(null); // item whose challenge is being answered
   const [responsesItem, setResponsesItem] = useState<Item | null>(null); // finder viewing responses
   const [detailItem, setDetailItem] = useState<Item | null>(null); // full-screen post detail
+  const [foundThisItem, setFoundThisItem] = useState<Item | null>(null); // lost-post "I found this" flow
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [offlineQueueCount] = useState(0);
@@ -2883,15 +3193,17 @@ export default function App() {
     listReposts().then(rows => { if (active) setReposts(rows as Repost[]); });
     listChallengeResponses().then(rows => { if (active) setChallengeResponses(rows as ChallengeResponse[]); });
     listVerifications().then(map => { if (active) setVerifications(map as Record<string, StudentVerification>); });
+    listNotifications().then(rows => { if (active) setNotifications(rows as AppNotification[]); });
     // Realtime subscriptions keep everyone in sync.
     const unsubItems = subscribeItems(rows => setItems(rows as Item[]));
     const unsubComments = subscribeComments(map => setComments(map as Record<string, ItemComment[]>));
     const unsubReposts = subscribeReposts(rows => setReposts(rows as Repost[]));
     const unsubCR = subscribeChallengeResponses(rows => setChallengeResponses(rows as ChallengeResponse[]));
     const unsubVer = subscribeVerifications(map => setVerifications(map as Record<string, StudentVerification>));
+    const unsubNotif = subscribeNotifications(rows => setNotifications(rows as AppNotification[]));
     return () => {
       active = false;
-      unsubItems(); unsubComments(); unsubReposts(); unsubCR(); unsubVer();
+      unsubItems(); unsubComments(); unsubReposts(); unsubCR(); unsubVer(); unsubNotif();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
@@ -2908,6 +3220,15 @@ export default function App() {
     acc[r.item_id] = (acc[r.item_id] ?? 0) + 1;
     return acc;
   }, {});
+
+  const myNotifications = user ? notifications.filter(n => n.recipient_id === user.id) : [];
+  const unreadCount = myNotifications.filter(n => !n.read).length;
+
+  // Mark notifications read when the Notifications view is open.
+  useEffect(() => {
+    if (view === "notifications") markNotificationsRead();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
 
   async function handleSignIn() {
     await signInWithGoogle();
@@ -3073,11 +3394,66 @@ export default function App() {
     setClaims(prev => [...prev, newClaim]);
   }
 
+  // ─── Notifications (Requirement 18) ────────────────────────────────────────
+  function pushNotification(recipientId: string, message: string, itemId?: string, responseId?: string) {
+    if (!recipientId) return;
+    const notif: AppNotification = {
+      id: `n${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+      recipient_id: recipientId,
+      message,
+      item_id: itemId,
+      response_id: responseId,
+      read: false,
+      created_at: new Date().toISOString(),
+    };
+    setNotifications(prev => [notif, ...prev]);
+    if (isDbEnabled) insertNotification(notif as unknown as import("./lib/db").DbNotification);
+  }
+  function markNotificationsRead() {
+    if (!user) return;
+    setNotifications(prev => prev.map(n => n.recipient_id === user.id ? { ...n, read: true } : n));
+    if (isDbEnabled) markNotificationsReadDb(user.id);
+  }
+
   // ─── Ownership Challenge handlers (Requirement 16) ─────────────────────────
   // "Prove it's yours" always opens the prove-ownership form. With a challenge it
   // shows the questions; without, it collects only the optional note.
   function handleClaimClick(item: Item) {
     setChallengeItem(item);
+  }
+
+  // ─── "I found this" on a lost post (Requirement 17) ────────────────────────
+  // Finder authors questions (+ note); the lost post's owner must answer.
+  function handleSubmitFoundReport(item: Item, questions: ChallengeQuestion[], note: string) {
+    if (!user) return;
+    const response: ChallengeResponse = {
+      id: `cr${Date.now()}`,
+      kind: "lost",
+      item_id: item.id,
+      responder_id: user.id,       // the finder reporting
+      responder_name: user.name,
+      owner_id: item.finder_id,    // lost post's owner (poster)
+      // Questions become answer slots with empty `answer` for the owner to fill.
+      answers: questions.filter(q => q.prompt.trim()).map(q => ({ question_id: q.id, prompt: q.prompt.trim(), answer: "" })),
+      note: note.trim() || undefined,
+      status: "awaiting_owner",
+      created_at: new Date().toISOString(),
+    };
+    setChallengeResponses(prev => [response, ...prev]);
+    if (isDbEnabled) insertChallengeResponse(response as unknown as import("./lib/db").DbChallengeResponse);
+    pushNotification(item.finder_id, `${user.name} found your "${item.title}" — answer their questions to verify.`, item.id, response.id);
+  }
+
+  // Owner fills in the answers to a found report's questions.
+  function handleOwnerAnswer(responseId: string, answers: ChallengeAnswer[]) {
+    setChallengeResponses(prev => prev.map(r => r.id === responseId ? { ...r, answers, status: "answered" } : r));
+    if (isDbEnabled) updateChallengeResponseAnswers(responseId, answers, "answered");
+    const r = challengeResponses.find(x => x.id === responseId);
+    if (r) pushNotification(r.responder_id, `The owner answered your questions on "${itemTitle(r.item_id)}". Review to confirm.`, r.item_id, r.id);
+  }
+
+  function itemTitle(itemId: string): string {
+    return items.find(i => i.id === itemId)?.title ?? "an item";
   }
 
   function handleSubmitChallengeResponse(itemId: string, answers: ChallengeAnswer[], note: string) {
@@ -3102,6 +3478,11 @@ export default function App() {
   function handleChallengeDecision(responseId: string, decision: "approved" | "rejected") {
     setChallengeResponses(prev => prev.map(r => r.id === responseId ? { ...r, status: decision } : r));
     if (isDbEnabled) updateChallengeResponseStatus(responseId, decision);
+    // On a lost-flow decision, notify the owner who answered.
+    const r = challengeResponses.find(x => x.id === responseId);
+    if (r?.kind === "lost" && r.owner_id) {
+      pushNotification(r.owner_id, `Your answer on "${itemTitle(r.item_id)}" was ${decision === "approved" ? "approved — the finder will arrange return" : "not approved"}.`, r.item_id, r.id);
+    }
   }
 
   // Finder escalates a response to staff: mark it escalated and create a Claim
@@ -3203,14 +3584,24 @@ export default function App() {
   return (
     <VerifiedContext.Provider value={verifiedIds}>
     <OpenDetailContext.Provider value={setDetailItem}>
+    <LostFlowContext.Provider value={{ currentUserId: user?.id ?? null, onFoundThis: setFoundThisItem }}>
     <div className="min-h-screen" style={{ background: "#FBF9D1" }}>
-      <Nav view={view} setView={setView} role={role} user={user} search={search} setSearch={setSearch} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} offlineQueueCount={offlineQueueCount} />
+      <Nav view={view} setView={setView} role={role} user={user} search={search} setSearch={setSearch} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} offlineQueueCount={offlineQueueCount} unreadCount={unreadCount} />
       <main>
         {view === "catalog" && <CatalogView items={items} role={role} user={user} search={search} categoryFilter={categoryFilter} onClaim={handleClaimClick} onUpvote={handleUpvote} upvotedIds={upvotedIds} onRepost={setRepostingItem} repostCounts={repostCounts} myRepostItemIds={myRepostItemIds} reposts={reposts} onShare={handleShare} comments={comments} onAddComment={handleAddComment} onAddReply={handleAddReply} challengeResponseCounts={responseCounts} />}
         {view === "log" && <FinderForm onSubmit={handleFinderSubmit} />}
         {view === "claims" && <OwnerClaimsView claims={ownerClaims} items={items} onReply={handleOwnerReply} />}
         {view === "profile" && <ProfileView user={user} items={items} reposts={reposts} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} verification={myVerification} onSubmitVerification={handleSubmitVerification} verifiedIds={verifiedIds} responseCounts={responseCounts} onViewResponses={setResponsesItem} />}
         {view === "staff" && <StaffDashboard items={items} claims={claims} allItems={items} onStatusChange={handleStatusChange} onClaimAction={handleClaimAction} onStaffReply={handleStaffReply} />}
+        {view === "notifications" && (
+          <NotificationsView
+            notifications={myNotifications}
+            onOpen={n => {
+              const it = items.find(i => i.id === n.item_id);
+              if (it) { if (it.kind === "lost") setFoundThisItem(it); else setDetailItem(it); }
+            }}
+          />
+        )}
       </main>
 
       {claimingItem && (
@@ -3252,7 +3643,23 @@ export default function App() {
           onAddReply={(commentId, msg) => handleAddReply(activeDetailItem.id, commentId, msg)}
         />
       )}
+      {foundThisItem && user && (
+        <LostFlowModal
+          item={foundThisItem}
+          currentUserId={user.id}
+          report={challengeResponses.find(r =>
+            r.item_id === foundThisItem.id && r.kind === "lost" &&
+            (r.responder_id === user.id || r.owner_id === user.id),
+          )}
+          onClose={() => setFoundThisItem(null)}
+          onSubmitReport={handleSubmitFoundReport}
+          onOwnerAnswer={handleOwnerAnswer}
+          onApprove={id => handleChallengeDecision(id, "approved")}
+          onReject={id => handleChallengeDecision(id, "rejected")}
+        />
+      )}
     </div>
+    </LostFlowContext.Provider>
     </OpenDetailContext.Provider>
     </VerifiedContext.Provider>
   );

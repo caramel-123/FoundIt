@@ -255,13 +255,15 @@ export function subscribeReposts(onChange: (rows: DbRepost[]) => void): () => vo
 
 export interface DbChallengeResponse {
   id: string;
+  kind?: "found" | "lost";
   item_id: string;
   finder_id: string;
   responder_id: string;
   responder_name: string;
+  owner_id?: string;
   answers: { question_id: string; prompt: string; answer: string }[];
   note?: string;
-  status: "pending" | "approved" | "rejected" | "escalated";
+  status: "pending" | "approved" | "rejected" | "escalated" | "awaiting_owner" | "answered";
   created_at: string;
 }
 
@@ -270,8 +272,10 @@ export async function listChallengeResponses(): Promise<DbChallengeResponse[]> {
   const { data, error } = await supabase!.from("challenge_responses").select("*").order("created_at", { ascending: false });
   if (error) { console.warn("listChallengeResponses failed:", error.message); return []; }
   return (data ?? []).map(r => ({
-    id: String(r.id), item_id: String(r.item_id), finder_id: String(r.finder_id),
+    id: String(r.id), kind: (r.kind as DbChallengeResponse["kind"]) ?? "found",
+    item_id: String(r.item_id), finder_id: String(r.finder_id),
     responder_id: String(r.responder_id), responder_name: (r.responder_name as string) ?? "",
+    owner_id: (r.owner_id as string) ?? undefined,
     answers: (r.answers as DbChallengeResponse["answers"]) ?? [],
     note: (r.note as string) ?? undefined,
     status: (r.status as DbChallengeResponse["status"]) ?? "pending",
@@ -282,9 +286,9 @@ export async function listChallengeResponses(): Promise<DbChallengeResponse[]> {
 export async function insertChallengeResponse(r: DbChallengeResponse): Promise<boolean> {
   if (!isDbEnabled) return false;
   const { error } = await supabase!.from("challenge_responses").insert({
-    id: r.id, item_id: r.item_id, finder_id: r.finder_id, responder_id: r.responder_id,
-    responder_name: r.responder_name, answers: r.answers, note: r.note ?? null,
-    status: r.status, created_at: r.created_at,
+    id: r.id, kind: r.kind ?? "found", item_id: r.item_id, finder_id: r.finder_id,
+    responder_id: r.responder_id, responder_name: r.responder_name, owner_id: r.owner_id ?? null,
+    answers: r.answers, note: r.note ?? null, status: r.status, created_at: r.created_at,
   });
   if (error) { console.warn("insertChallengeResponse failed:", error.message); return false; }
   return true;
@@ -294,6 +298,18 @@ export async function updateChallengeResponseStatus(id: string, status: DbChalle
   if (!isDbEnabled) return false;
   const { error } = await supabase!.from("challenge_responses").update({ status }).eq("id", id);
   if (error) { console.warn("updateChallengeResponseStatus failed:", error.message); return false; }
+  return true;
+}
+
+// Owner submits answers to a found report (lost flow): fill answers + set status.
+export async function updateChallengeResponseAnswers(
+  id: string,
+  answers: DbChallengeResponse["answers"],
+  status: DbChallengeResponse["status"],
+): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("challenge_responses").update({ answers, status }).eq("id", id);
+  if (error) { console.warn("updateChallengeResponseAnswers failed:", error.message); return false; }
   return true;
 }
 
@@ -364,6 +380,58 @@ export function subscribeVerifications(onChange: (map: Record<string, DbVerifica
     .channel("public:verifications")
     .on("postgres_changes", { event: "*", schema: "public", table: "verifications" }, async () => {
       onChange(await listVerifications());
+    })
+    .subscribe();
+  return () => { supabase!.removeChannel(channel); };
+}
+
+// ─── Notifications (Requirement 18) ─────────────────────────────────────────────
+
+export interface DbNotification {
+  id: string;
+  recipient_id: string;
+  message: string;
+  item_id?: string;
+  response_id?: string;
+  read: boolean;
+  created_at: string;
+}
+
+export async function listNotifications(): Promise<DbNotification[]> {
+  if (!isDbEnabled) return [];
+  const { data, error } = await supabase!.from("notifications").select("*").order("created_at", { ascending: false });
+  if (error) { console.warn("listNotifications failed:", error.message); return []; }
+  return (data ?? []).map(r => ({
+    id: String(r.id), recipient_id: String(r.recipient_id), message: (r.message as string) ?? "",
+    item_id: (r.item_id as string) ?? undefined, response_id: (r.response_id as string) ?? undefined,
+    read: Boolean(r.read), created_at: (r.created_at as string) ?? new Date().toISOString(),
+  }));
+}
+
+export async function insertNotification(n: DbNotification): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("notifications").insert({
+    id: n.id, recipient_id: n.recipient_id, message: n.message,
+    item_id: n.item_id ?? null, response_id: n.response_id ?? null,
+    read: n.read, created_at: n.created_at,
+  });
+  if (error) { console.warn("insertNotification failed:", error.message); return false; }
+  return true;
+}
+
+export async function markNotificationsReadDb(recipientId: string): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("notifications").update({ read: true }).eq("recipient_id", recipientId).eq("read", false);
+  if (error) { console.warn("markNotificationsReadDb failed:", error.message); return false; }
+  return true;
+}
+
+export function subscribeNotifications(onChange: (rows: DbNotification[]) => void): () => void {
+  if (!isDbEnabled) return () => {};
+  const channel = supabase!
+    .channel("public:notifications")
+    .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, async () => {
+      onChange(await listNotifications());
     })
     .subscribe();
   return () => { supabase!.removeChannel(channel); };
