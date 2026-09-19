@@ -169,14 +169,14 @@ Share:
     the user can copy it manually, without error.
 
 Comment:
-11. WHEN a user activates comment THEN the system SHALL open a modal comment
-    panel (a centered pop-up dialog with a dimmed backdrop, not an inline
-    slide-down) for that item. The panel SHALL render the full post at the top of
-    its scrollable area (poster, status, title, description, photo if any, and
-    found location/time), followed by the existing comments with author and
-    relative time, and a sticky composer input at the bottom to add a comment.
-    The panel SHALL be dismissible via a close control, a backdrop click, and the
-    Escape key.
+11. WHEN a user clicks a post (its body) OR activates the comment action THEN the
+    system SHALL open a full-screen **post detail view** (Reddit-style), not a
+    pop-up modal. The detail view SHALL render the full post (poster, tags,
+    status, title, description, photo if any, found location/time), the item's
+    action row, the comment thread with author and relative time, and a composer
+    to add a comment. It SHALL provide a Back control to return to the previous
+    view. Clicking the action buttons (upvote/repost/share/claim) SHALL NOT
+    navigate into the detail view.
 12. WHEN a user posts a comment THEN the system SHALL append it to the thread,
     attribute it to the signed-in user, and increment the displayed comment count.
 13. THE comment count on the card SHALL reflect the actual number of comments,

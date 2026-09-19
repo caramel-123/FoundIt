@@ -91,6 +91,8 @@ interface Item {
   challenge?: ChallengeQuestion[]; // optional Ownership Challenge (Requirement 16)
 }
 
+type ShareResult = "shared" | "copied" | "failed" | "cancelled";
+
 // ─── Ownership Challenge (Requirement 16) ───────────────────────────────────────
 
 interface ChallengeQuestion {
@@ -365,6 +367,13 @@ function useIsVerified(userId: string): boolean {
   return useContext(VerifiedContext).has(userId);
 }
 
+// Opens the full-screen post detail view (Reddit-style) for an item, without
+// prop-drilling through the catalog → card → actions chain.
+const OpenDetailContext = createContext<(item: Item) => void>(() => {});
+function useOpenDetail(): (item: Item) => void {
+  return useContext(OpenDetailContext);
+}
+
 function ClaimBadge({ status }: { status: ClaimStatus }) {
   const styles: Record<ClaimStatus, { bg: string; text: string; border: string }> = {
     pending_review: { bg: "#FDF3EC", text: "#7A3A1A", border: "#E8C4AD" },
@@ -592,16 +601,21 @@ function PostActions({
   onRepost?: (item: Item) => void;
   reposted?: boolean;
   repostCount?: number;
-  onShare?: (item: Item) => Promise<boolean>;
+  onShare?: (item: Item) => Promise<ShareResult>;
   extra?: ReactElement | null;
 }) {
-  const [commentsOpen, setCommentsOpen] = useState(false);
   const [shareMsg, setShareMsg] = useState<string | null>(null);
   const commentCount = countCommentNodes(comments);
+  const openDetail = useOpenDetail();
 
   async function handleShareClick() {
-    const ok = onShare ? await onShare(repostItem) : false;
-    setShareMsg(ok ? "Link copied" : "Copy failed — try again");
+    const result = onShare ? await onShare(repostItem) : "failed";
+    if (result === "cancelled") return; // user dismissed the share sheet
+    const msg =
+      result === "shared" ? "Shared" :
+      result === "copied" ? "Link copied" :
+      "Couldn't share — try again";
+    setShareMsg(msg);
     setTimeout(() => setShareMsg(null), 2000);
   }
 
@@ -618,11 +632,10 @@ function PostActions({
         </button>
 
         <button
-          onClick={() => setCommentsOpen(true)}
+          onClick={() => openDetail(repostItem)}
           className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
           style={{ background: "#F5ECEC", color: "#6B3A3A" }}
           aria-label="Comments"
-          aria-haspopup="dialog"
         >
           <IconComment />
           <span>{commentCount}</span>
@@ -654,38 +667,28 @@ function PostActions({
 
         {extra}
       </div>
-
-      {commentsOpen && (
-        <CommentModal
-          item={repostItem}
-          comments={comments}
-          onClose={() => setCommentsOpen(false)}
-          onAddComment={msg => onAddComment?.(postId, msg)}
-          onAddReply={(commentId, msg) => onAddReply?.(postId, commentId, msg)}
-        />
-      )}
     </>
   );
 }
 
-// ─── Comment Modal (Facebook-style pop-up) ──────────────────────────────────────
+// ─── Post Detail (full-screen, Reddit-style) ───────────────────────────────────
 
-function CommentModal({ item, comments, onClose, onAddComment, onAddReply }: {
+function PostDetail({ item, comments, onBack, onAddComment, onAddReply }: {
   item: Item;
   comments: ItemComment[];
-  onClose: () => void;
+  onBack: () => void;
   onAddComment: (message: string) => void;
   onAddReply: (commentId: string, message: string) => void;
 }) {
   const [commentDraft, setCommentDraft] = useState("");
   const count = countCommentNodes(comments);
 
-  // Close on Escape.
+  // Close on Escape (back to the list).
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onBack(); }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onBack]);
 
   function submitComment(e: React.FormEvent) {
     e.preventDefault();
@@ -695,49 +698,51 @@ function CommentModal({ item, comments, onClose, onAddComment, onAddReply }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Comments">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div
-        className="relative w-full sm:max-w-lg max-h-[85vh] sm:max-h-[80vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-xl"
-        style={{ background: "#FBF9D1" }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: "1px solid #C1856D" }}>
-          <div className="min-w-0">
-            <h3 className="font-semibold text-sm truncate" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}'s post</h3>
-            <p className="text-xs truncate" style={{ color: "#9A7070" }}>{count} {count === 1 ? "comment" : "comments"}</p>
-          </div>
-          <button onClick={onClose} aria-label="Close comments" style={{ color: "#9A7070" }}>
-            <IconX />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "#FBF9D1" }}>
+      {/* Top bar */}
+      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FBF9D1", borderBottom: "1px solid #C1856D" }}>
+        <button onClick={onBack} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
+          <IconArrowLeft /> Back
+        </button>
+        <span className="font-semibold text-sm truncate" style={{ color: "#2C1414" }}>Post</span>
+      </header>
 
-        {/* Scrollable: post first, then thread */}
-        <div className="flex-1 overflow-y-auto scroll-area px-4 py-3">
-          {/* The post itself */}
-          <div className="pb-3 mb-3" style={{ borderBottom: "1px solid #E6CFA9" }}>
+      {/* Scrollable: full post, then comment thread */}
+      <div className="flex-1 overflow-y-auto scroll-area">
+        <div className="max-w-2xl mx-auto px-4 py-4">
+          {/* The post */}
+          <div className="pb-4 mb-4" style={{ borderBottom: "1px solid #C1856D" }}>
             <div className="flex items-center gap-2">
               <Avatar id={item.finder_id} name={item.finder_name} size={32} />
               <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-sm font-semibold" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}</span>
                   {useIsVerified(item.finder_id) && <VerificationBadge size={13} />}
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                    style={item.kind === "lost" ? { background: "#F5ECEC", color: "#9A3F3F" } : { background: "#E6CFA9", color: "#5C2020" }}
+                  >
+                    {item.kind === "lost" ? "Lost" : "Found"}
+                  </span>
                   <StatusBadge status={item.status} />
                 </div>
                 <span className="text-xs" style={{ color: "#9A7070" }}>{postedLabel(item.created_at)}</span>
               </div>
             </div>
-            <h4 className="mt-2 font-semibold text-base" style={{ color: "#2C1414" }}>{item.title}</h4>
-            {item.description && <p className="mt-1 text-sm leading-relaxed" style={{ color: "#2C1414" }}>{item.description}</p>}
+            <h1 className="mt-3 font-semibold text-xl leading-snug" style={{ color: "#2C1414" }}>{item.title}</h1>
+            {item.description && <p className="mt-2 text-sm leading-relaxed" style={{ color: "#2C1414" }}>{item.description}</p>}
             {item.image_url && (
-              <img src={item.image_url} alt={item.title} className="mt-3 w-full max-h-64 object-cover rounded-xl" />
+              <img src={item.image_url} alt={item.title} className="mt-3 w-full max-h-[28rem] object-cover rounded-xl" />
             )}
-            <div className="mt-2 flex flex-wrap gap-3">
+            <div className="mt-3 flex flex-wrap gap-3">
               {item.location_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconMapPin />{item.location_found}</span>}
               {item.time_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconClock />{formatDate(item.time_found)}</span>}
             </div>
           </div>
+
+          <p className="text-sm font-semibold mb-3" style={{ color: "#2C1414" }}>
+            {count} {count === 1 ? "comment" : "comments"}
+          </p>
 
           {comments.length === 0 ? (
             <p className="text-sm py-6 text-center" style={{ color: "#9A7070" }}>No comments yet. Be the first to comment.</p>
@@ -749,23 +754,24 @@ function CommentModal({ item, comments, onClose, onAddComment, onAddReply }: {
             </div>
           )}
         </div>
+      </div>
 
-        {/* Sticky composer */}
-        <form onSubmit={submitComment} className="flex items-center gap-2 p-4" style={{ borderTop: "1px solid #C1856D" }}>
+      {/* Sticky composer */}
+      <form onSubmit={submitComment} className="flex items-center gap-2 p-4 shrink-0" style={{ borderTop: "1px solid #C1856D", background: "#FBF9D1" }}>
+        <div className="max-w-2xl mx-auto w-full flex items-center gap-2">
           <input
             type="text"
             value={commentDraft}
             onChange={e => setCommentDraft(e.target.value)}
             placeholder="Write a comment…"
-            autoFocus
             className="flex-1 px-4 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
             style={{ background: "#FBF9D1", borderColor: "#C1856D", color: "#2C1414" }}
           />
           <button type="submit" disabled={!commentDraft.trim()} className="px-4 py-2 text-sm font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
             Post
           </button>
-        </form>
-      </div>
+        </div>
+      </form>
     </div>
   );
 }
@@ -849,7 +855,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
   onRepost?: (item: Item) => void;
   reposted?: boolean;
   repostCount?: number;
-  onShare?: (item: Item) => Promise<boolean>;
+  onShare?: (item: Item) => Promise<ShareResult>;
   comments?: ItemComment[];
   onAddComment?: (itemId: string, message: string) => void;
   onAddReply?: (itemId: string, commentId: string, message: string) => void;
@@ -857,13 +863,20 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
   challengeResponseCount?: number;
 }) {
   const commentList = comments ?? [];
+  const openDetail = useOpenDetail();
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl p-4 transition-shadow duration-200 hover:shadow-md"
-      style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+    <div className="flex flex-col gap-3 py-4 transition-colors"
+      style={{ borderBottom: "1px solid #C1856D" }}>
 
-      {/* Content */}
-      <div className="flex flex-col gap-2 min-w-0">
+      {/* Content — clicking opens the full-screen post detail (Reddit-style) */}
+      <div
+        className="flex flex-col gap-2 min-w-0 cursor-pointer"
+        onClick={() => openDetail(item)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === "Enter") openDetail(item); }}
+      >
         <div className="flex items-center gap-1.5">
           <Avatar id={item.finder_id} name={item.finder_name} size={20} />
           <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}</span>
@@ -890,9 +903,9 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
         </div>
       </div>
 
-      {/* Full-width photo below the caption (Reddit-style) */}
+      {/* Full-width photo below the caption (Reddit-style) — also opens detail */}
       {item.image_url && (
-        <div className="rounded-lg overflow-hidden" style={{ background: "#D4B890" }}>
+        <div className="rounded-lg overflow-hidden cursor-pointer" style={{ background: "#D4B890" }} onClick={() => openDetail(item)}>
           <img src={item.image_url} alt={item.description} className="w-full max-h-96 object-cover" />
         </div>
       )}
@@ -985,11 +998,11 @@ function RepostCard({ repost, item, onRemove, actions }: {
     onRepost?: (item: Item) => void;
     reposted?: boolean;
     repostCount?: number;
-    onShare?: (item: Item) => Promise<boolean>;
+    onShare?: (item: Item) => Promise<ShareResult>;
   };
 }) {
   return (
-    <div className="rounded-xl p-4 flex flex-col gap-2" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
+    <div className="py-4 flex flex-col gap-2" style={{ borderBottom: "1px solid #C1856D" }}>
       <div className="flex items-center gap-1.5">
         <span style={{ color: "#9A3F3F" }}><IconRepost /></span>
         <Avatar id={repost.user_id} name={repost.user_name} size={20} />
@@ -1358,7 +1371,7 @@ function CatalogView({ items, role, user, search, categoryFilter, onClaim, onUpv
   repostCounts: Record<string, number>;
   myRepostItemIds: Set<string>;
   reposts: Repost[];
-  onShare: (item: Item) => Promise<boolean>;
+  onShare: (item: Item) => Promise<ShareResult>;
   comments: Record<string, ItemComment[]>;
   onAddComment: (itemId: string, message: string) => void;
   onAddReply: (itemId: string, commentId: string, message: string) => void;
@@ -1386,11 +1399,11 @@ function CatalogView({ items, role, user, search, categoryFilter, onClaim, onUpv
           <p className="text-xs mt-1" style={{ color: "#9A7070" }}>Try a different category or search term from the header</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col">
           {filtered.map(item => {
             const itemReposts = reposts.filter(r => r.item_id === item.id);
             return (
-              <div key={item.id} className="flex flex-col gap-3">
+              <div key={item.id} className="flex flex-col">
                 <ItemCard
                   item={item}
                   onClaim={onClaim}
@@ -2268,7 +2281,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
             onChange={e => { setSearch(e.target.value); if (view !== "catalog") setView("catalog"); }}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
-            placeholder="Search found items…"
+            placeholder="Search"
             className="w-full pl-9 pr-16 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
             style={{ background: "#F7EDE6", borderColor: "#C1856D", color: "#2C1414" }}
           />
@@ -2837,6 +2850,7 @@ export default function App() {
   const [repostingItem, setRepostingItem] = useState<Item | null>(null);
   const [challengeItem, setChallengeItem] = useState<Item | null>(null); // item whose challenge is being answered
   const [responsesItem, setResponsesItem] = useState<Item | null>(null); // finder viewing responses
+  const [detailItem, setDetailItem] = useState<Item | null>(null); // full-screen post detail
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [offlineQueueCount] = useState(0);
@@ -2974,13 +2988,30 @@ export default function App() {
     if (isDbEnabled) removeRepost(itemId, user.id);
   }
 
-  async function handleShare(item: Item): Promise<boolean> {
+  // Share via the native share sheet (Messenger, WhatsApp, Messages, etc.) when
+  // available; otherwise copy the link. Returns a status for the UI message.
+  async function handleShare(item: Item): Promise<"shared" | "copied" | "failed" | "cancelled"> {
     const url = `${window.location.origin}/?item=${encodeURIComponent(item.id)}`;
+    const label = item.kind === "lost" ? "Lost" : "Found";
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: `Foundit — ${item.title}`,
+          text: `${label} on campus: ${item.title}`,
+          url,
+        });
+        return "shared";
+      } catch (err) {
+        // User dismissed the share sheet — not an error.
+        if (err instanceof DOMException && err.name === "AbortError") return "cancelled";
+        // Fall through to clipboard on other failures.
+      }
+    }
     try {
       await navigator.clipboard.writeText(url);
-      return true;
+      return "copied";
     } catch {
-      return false;
+      return "failed";
     }
   }
 
@@ -3166,8 +3197,12 @@ export default function App() {
     return <LandingPage onGetStarted={() => setAuthView("login")} />;
   }
 
+  // Keep the open detail item in sync with live data (realtime/comment updates).
+  const activeDetailItem = detailItem ? (items.find(i => i.id === detailItem.id) ?? detailItem) : null;
+
   return (
     <VerifiedContext.Provider value={verifiedIds}>
+    <OpenDetailContext.Provider value={setDetailItem}>
     <div className="min-h-screen" style={{ background: "#FBF9D1" }}>
       <Nav view={view} setView={setView} role={role} user={user} search={search} setSearch={setSearch} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} offlineQueueCount={offlineQueueCount} />
       <main>
@@ -3208,7 +3243,17 @@ export default function App() {
           onRemove={handleRemoveRepost}
         />
       )}
+      {activeDetailItem && (
+        <PostDetail
+          item={activeDetailItem}
+          comments={comments[activeDetailItem.id] ?? []}
+          onBack={() => setDetailItem(null)}
+          onAddComment={msg => handleAddComment(activeDetailItem.id, msg)}
+          onAddReply={(commentId, msg) => handleAddReply(activeDetailItem.id, commentId, msg)}
+        />
+      )}
     </div>
+    </OpenDetailContext.Provider>
     </VerifiedContext.Provider>
   );
 }
