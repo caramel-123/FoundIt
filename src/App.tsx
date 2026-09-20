@@ -1185,7 +1185,7 @@ function PostDetail({
                 upvoted={upvoted}
                 onUpvote={onUpvote}
                 comments={comments}
-                onAddComment={onAddComment}
+                onAddComment={(postId, message) => onAddComment(message, "public")}
                 onAddReply={onAddReply}
                 repostItem={item}
                 onRepost={onRepost}
@@ -2233,6 +2233,80 @@ function CatalogView({ items, role, user, search, categoryFilter, onClaim, onUpv
   );
 }
 
+// ─── Gallery View (photo-centric masonry grid, Requirement 19) ────────────────────
+
+function GalleryView({ items, user }: { items: Item[]; user: AuthUser }) {
+  const openDetail = useOpenDetail();
+
+  // Only items with photos, respecting the same visibility rules as the catalog.
+  const photoItems = items.filter(i =>
+    i.image_url &&
+    i.status !== "released" &&
+    (i.status === "in_office" || i.status === "approved_for_pickup" ||
+      (i.status === "pending_intake" && i.finder_id === user.id)),
+  );
+
+  // Split into two columns for masonry (odd → left, even → right).
+  const left = photoItems.filter((_, i) => i % 2 === 0);
+  const right = photoItems.filter((_, i) => i % 2 !== 0);
+
+  function Tile({ item }: { item: Item }) {
+    return (
+      <button
+        onClick={() => openDetail(item)}
+        className="relative w-full text-left overflow-hidden rounded-xl mb-2 block"
+        style={{ border: "1px solid #C1856D" }}
+      >
+        <img
+          src={item.image_url}
+          alt={item.title}
+          className="w-full object-cover"
+          style={{ display: "block" }}
+        />
+        {/* Minimal overlay — Found/Lost tag + title */}
+        <div
+          className="absolute bottom-0 left-0 right-0 px-2 py-2"
+          style={{ background: "linear-gradient(to top, rgba(44,20,20,0.72) 0%, transparent 100%)" }}
+        >
+          <span
+            className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded mb-1 inline-block"
+            style={item.kind === "lost"
+              ? { background: "rgba(154,63,63,0.85)", color: "#FBF9D1" }
+              : { background: "rgba(193,133,109,0.85)", color: "#FBF9D1" }}
+          >
+            {item.kind === "lost" ? "Lost" : "Found"}
+          </span>
+          <p className="text-xs font-semibold leading-tight line-clamp-2" style={{ color: "#FBF9D1" }}>{item.title}</p>
+        </div>
+      </button>
+    );
+  }
+
+  if (photoItems.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center">
+        <p className="text-sm font-medium" style={{ color: "#6B3A3A" }}>No posts with photos yet</p>
+        <p className="text-xs mt-1" style={{ color: "#9A7070" }}>Posts with photos will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-3 py-4">
+      <div className="flex gap-2">
+        {/* Left column */}
+        <div className="flex-1 flex flex-col">
+          {left.map(item => <Tile key={item.id} item={item} />)}
+        </div>
+        {/* Right column */}
+        <div className="flex-1 flex flex-col">
+          {right.map(item => <Tile key={item.id} item={item} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Finder Form ──────────────────────────────────────────────────────────────
 
 function FinderForm({ onSubmit }: {
@@ -3006,7 +3080,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
 
 // ─── Nav ──────────────────────────────────────────────────────────────────────
 
-type View = "catalog" | "log" | "claims" | "profile" | "staff" | "notifications";
+type View = "catalog" | "gallery" | "log" | "claims" | "profile" | "staff" | "notifications";
 
 function Nav({ view, setView, role, user, search, setSearch, categoryFilter, setCategoryFilter, offlineQueueCount, unreadCount }: {
   view: View;
@@ -3022,6 +3096,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
 }) {
   const navItems: { id: View; label: string; roles: Role[] }[] = [
     { id: "catalog", label: "Catalog", roles: ["finder", "owner", "staff"] },
+    { id: "gallery", label: "Gallery", roles: ["finder", "owner", "staff"] },
     { id: "log", label: "Log Item", roles: ["finder", "owner"] },
     { id: "claims", label: "My Claims", roles: ["owner"] },
     { id: "notifications", label: "Notifications", roles: ["finder", "owner", "staff"] },
@@ -4011,7 +4086,8 @@ export default function App() {
   // "Prove it's yours" always opens the prove-ownership form. With a challenge it
   // shows the questions; without, it collects only the optional note.
   function handleClaimClick(item: Item) {
-    setChallengeItem(item);
+    // Route to PostDetail — the inline OwnershipActionSection handles the form.
+    setDetailItem(item);
   }
 
   // ─── "I found this" on a lost post (Requirement 17) ────────────────────────
@@ -4181,11 +4257,12 @@ export default function App() {
   return (
     <VerifiedContext.Provider value={verifiedIds}>
     <OpenDetailContext.Provider value={setDetailItem}>
-    <LostFlowContext.Provider value={{ currentUserId: user?.id ?? null, onFoundThis: setFoundThisItem }}>
+    <LostFlowContext.Provider value={{ currentUserId: user?.id ?? null, onFoundThis: setDetailItem }}>
     <div className="min-h-screen" style={{ background: "#FBF9D1" }}>
       <Nav view={view} setView={setView} role={role} user={user} search={search} setSearch={setSearch} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} offlineQueueCount={offlineQueueCount} unreadCount={unreadCount} />
       <main>
         {view === "catalog" && <CatalogView items={items} role={role} user={user} search={search} categoryFilter={categoryFilter} onClaim={handleClaimClick} onUpvote={handleUpvote} upvotedIds={upvotedIds} onRepost={setRepostingItem} repostCounts={repostCounts} myRepostItemIds={myRepostItemIds} reposts={reposts} onShare={handleShare} comments={comments} onAddComment={handleAddComment} onAddReply={handleAddReply} challengeResponseCounts={responseCounts} />}
+        {view === "gallery" && <GalleryView items={items} user={user} />}
         {view === "log" && <FinderForm onSubmit={handleFinderSubmit} />}
         {view === "claims" && <OwnerClaimsView claims={ownerClaims} items={items} onReply={handleOwnerReply} />}
         {view === "profile" && <ProfileView user={user} items={items} reposts={reposts} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} verification={myVerification} onSubmitVerification={handleSubmitVerification} verifiedIds={verifiedIds} responseCounts={responseCounts} onViewResponses={setResponsesItem} />}
@@ -4253,6 +4330,12 @@ export default function App() {
           onAddComment={(msg, visibility) => handleAddComment(activeDetailItem.id, msg, visibility)}
           onAddReply={(commentId, msg) => handleAddReply(activeDetailItem.id, commentId, msg)}
           onClaim={handleClaimClick}
+          challengeResponses={challengeResponses.filter(r => r.item_id === activeDetailItem.id)}
+          onSubmitChallengeResponse={(itemId, answers, note) => handleSubmitChallengeResponse(itemId, answers, note)}
+          onSubmitFoundReport={handleSubmitFoundReport}
+          onOwnerAnswer={handleOwnerAnswer}
+          onApprove={id => handleChallengeDecision(id, "approved")}
+          onReject={id => handleChallengeDecision(id, "rejected")}
         />
       )}
       {foundThisItem && user && (

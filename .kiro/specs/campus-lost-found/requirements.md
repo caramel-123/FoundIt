@@ -353,6 +353,20 @@ me (someone found my lost item, or an owner answered my questions), so I can act
 3. THE navigation SHALL show a notifications control with an **unread count**
    indicator; opening the Notifications view SHALL mark them read.
 
+### Requirement 19 — Gallery view (photo-centric catalog mode)
+
+**User story:** As an owner searching for a lost item, I want a photo-grid view
+of all posts so I can quickly scan by image without reading every caption.
+
+#### Acceptance Criteria
+1. THE navigation SHALL provide a **Gallery** view alongside the Catalog.
+2. THE Gallery SHALL display items that have photos in a 2-column masonry grid,
+   photo-first, with minimal text overlay (Found/Lost tag + title only).
+3. WHERE an item has no photo it SHALL be omitted from the Gallery.
+4. WHEN a user taps a gallery tile THEN the system SHALL open the full-screen
+   post detail for that item.
+5. THE Gallery SHALL respect the same visibility rules as the Catalog.
+
 ### Requirement 7 — Private claim thread
 
 **User story:** As an owner and as staff, I want a private message thread scoped
