@@ -499,6 +499,18 @@ function IconBell() {
   );
 }
 
+function IconDocument() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/>
+      <line x1="16" y1="17" x2="8" y2="17"/>
+      <polyline points="10 9 9 9 8 9"/>
+    </svg>
+  );
+}
+
 function IconPlus() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -771,20 +783,18 @@ function OwnershipActionSection({
     if (isPoster) {
       if (reportsForOwner.length === 0) return null;
       return (
-        <div className="mt-4 p-4 rounded-xl" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-          <h3 className="font-semibold text-sm mb-2" style={{ color: "#2C1414" }}>
-            Reports from finders ({reportsForOwner.length})
-          </h3>
-          <div className="flex flex-col gap-3">
+        <div className="mt-4 pt-4 flex flex-col gap-4" style={{ borderTop: "1px solid #C1856D" }}>
+          <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Reports from finders ({reportsForOwner.length})</p>
+          <div className="flex flex-col gap-4">
             {reportsForOwner.map(report => (
-              <div key={report.id} className="p-3 rounded-lg bg-[#FBF9D1] border border-[#C1856D]/60">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{report.responder_name} found your item</span>
+              <div key={report.id} className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold" style={{ color: "#2C1414" }}>{report.responder_name} found your item</span>
                   <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
                     {report.status.replace("_", " ")}
                   </span>
                 </div>
-                {report.note && <p className="text-xs mb-2" style={{ color: "#6B3A3A" }}>Finder note: {report.note}</p>}
+                {report.note && <p className="text-xs" style={{ color: "#6B3A3A" }}>Finder note: {report.note}</p>}
                 {report.status === "awaiting_owner" && (
                   <form
                     onSubmit={e => {
@@ -793,11 +803,11 @@ function OwnershipActionSection({
                       if (filled.some(a => !a.answer)) return;
                       onOwnerAnswer?.(report.id, filled, ownerReplyNote);
                     }}
-                    className="flex flex-col gap-2 mt-2"
+                    className="flex flex-col gap-3"
                   >
                     {report.answers.map((a, i) => (
                       <div key={a.question_id}>
-                        <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</label>
+                        <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</label>
                         <input
                           type="text"
                           required
@@ -829,8 +839,8 @@ function OwnershipActionSection({
                   </p>
                 )}
                 {report.status === "approved" && (
-                  <p className="text-xs font-semibold mt-1" style={{ color: "#9A3F3F" }}>
-                    {report.responder_name} approved you! They will arrange the return.
+                  <p className="text-xs font-semibold" style={{ color: "#9A3F3F" }}>
+                    {report.responder_name} approved you
                   </p>
                 )}
               </div>
@@ -842,10 +852,10 @@ function OwnershipActionSection({
 
     if (myResponse) {
       return (
-        <div className="mt-4 p-4 rounded-xl" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>Your found report</h3>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#FBF9D1", color: "#9A3F3F" }}>
+        <div className="mt-4 pt-4 flex flex-col gap-3" style={{ borderTop: "1px solid #C1856D" }}>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Your found report</p>
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
               {myResponse.status.replace("_", " ")}
             </span>
           </div>
@@ -994,23 +1004,8 @@ function OwnershipActionSection({
     const hasQuestions = questions.length > 0;
 
     return (
-      <div className="mt-4 p-4 rounded-xl" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-        {!isOpen ? (
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>Is this your item?</h3>
-              <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>Prove ownership to the finder.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsOpen(true)}
-              className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors"
-              style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-            >
-              I lost it
-            </button>
-          </div>
-        ) : (
+      <div className="mt-4 pt-4 flex flex-col gap-4" style={{ borderTop: "1px solid #C1856D" }}>
+        {!isOpen ? null : (
           <form
             onSubmit={e => {
               e.preventDefault();
@@ -1022,43 +1017,43 @@ function OwnershipActionSection({
               onSubmitChallengeResponse?.(item.id, payload, claimantNote);
               setSubmitted(true);
             }}
-            className="flex flex-col gap-3"
+            className="flex flex-col gap-4"
           >
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>I lost it — prove ownership</h3>
-              <button type="button" onClick={() => setIsOpen(false)} className="text-xs text-[#9A7070] hover:underline">Cancel</button>
+              <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>I lost it — prove ownership</p>
+              <button type="button" onClick={() => setIsOpen(false)} className="text-xs hover:underline" style={{ color: "#9A7070" }}>Cancel</button>
             </div>
             {submitted ? (
-              <p className="text-xs font-medium text-[#9A3F3F] py-2">Claim submitted! The finder will review your answers.</p>
+              <p className="text-sm font-medium" style={{ color: "#9A3F3F" }}>Claim submitted! The finder will review your answers.</p>
             ) : (
               <>
                 {questions.map((q, i) => (
                   <div key={q.id}>
-                    <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>{i + 1}. {q.prompt} *</label>
+                    <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {q.prompt} <span style={{ color: "#9A3F3F" }}>*</span></label>
                     <input
                       type="text"
                       required
                       placeholder="Your answer"
                       value={challengeAnswers[q.id] ?? ""}
                       onChange={ev => setChallengeAnswers(prev => ({ ...prev, [q.id]: ev.target.value }))}
-                      className={inputCls + " text-xs"}
+                      className={inputCls}
                     />
                   </div>
                 ))}
                 <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>
                     {hasQuestions ? "Note to finder (optional)" : "Describe identifying details *"}
                   </label>
                   <textarea
-                    rows={2}
+                    rows={3}
                     required={!hasQuestions}
                     placeholder="Describe unique scratches, serials, contents, or where you lost it..."
                     value={claimantNote}
                     onChange={ev => setClaimantNote(ev.target.value)}
-                    className={inputCls + " text-xs resize-none"}
+                    className={inputCls + " resize-none"}
                   />
                 </div>
-                <button type="submit" className={btnPrimary + " self-start text-xs py-2"}>
+                <button type="submit" className={btnPrimary + " self-start"}>
                   Submit claim
                 </button>
               </>
@@ -1103,7 +1098,12 @@ function PostDetail({
 }) {
   const [commentDraft, setCommentDraft] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [showClaimForm, setShowClaimForm] = useState(false);
+  const [claimAnswers, setClaimAnswers] = useState<Record<string, string>>({});
+  const [claimNote, setClaimNote] = useState("");
+  const [claimSubmitted, setClaimSubmitted] = useState(false);
   const openAuthor = useOpenAuthor();
+  const lostFlow = useLostFlow();
 
   // A private comment thread is visible only to the post's author and the
   // thread's author. Filter the top-level list accordingly.
@@ -1177,7 +1177,7 @@ function PostDetail({
               {item.time_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconClock />{formatDate(item.time_found)}</span>}
             </div>
 
-            {/* Post actions (Upvote, Comment count, Repost, Share) */}
+            {/* Post actions (Upvote, Comment count, Repost, Share) + claim button rightmost */}
             <div className="mt-4 pt-3" style={{ borderTop: "1px dashed #C1856D" }}>
               <PostActions
                 postId={item.id}
@@ -1192,26 +1192,95 @@ function PostDetail({
                 reposted={reposted}
                 repostCount={repostCount}
                 onShare={onShare}
+                extra={
+                  item.status !== "released" && currentUserId !== item.finder_id ? (
+                    item.kind === "lost" ? (
+                      <button
+                        onClick={() => lostFlow.onFoundThis(item)}
+                        className="ml-auto px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
+                        style={{ background: "transparent", border: "1px solid #C1856D", color: "#9A3F3F" }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#F5ECEC"; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+                      >
+                        I found it
+                      </button>
+                    ) : onClaim ? (
+                      <button
+                        onClick={() => onClaim(item)}
+                        className="ml-auto px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
+                        style={{ background: "transparent", border: "1px solid #C1856D", color: "#9A3F3F" }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#F5ECEC"; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+                      >
+                        I lost it
+                      </button>
+                    ) : null
+                  ) : null
+                }
               />
             </div>
 
-            {/* Inline Ownership Action Section */}
-            <OwnershipActionSection
-              item={item}
-              currentUserId={currentUserId}
-              responses={challengeResponses}
-              onSubmitChallengeResponse={onSubmitChallengeResponse}
-              onSubmitFoundReport={onSubmitFoundReport}
-              onOwnerAnswer={onOwnerAnswer}
-              onApprove={onApprove}
-              onReject={onReject}
-              initialOpen={initialActionOpen}
-            />
+          </div>{/* end post block */}
+
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>
+              {count} {count === 1 ? "comment" : "comments"}
+            </p>
+            {/* Document icon — opens the ownership form (I lost it / I found it) */}
+            {item.status !== "released" && currentUserId !== item.finder_id && (
+              <button
+                type="button"
+                onClick={() => setShowClaimForm(v => !v)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full transition-colors"
+                style={{ background: "transparent", border: "1px solid #C1856D", color: showClaimForm ? "#9A3F3F" : "#6B3A3A" }}
+                aria-label={item.kind === "lost" ? "I found it" : "I lost it"}
+                title={item.kind === "lost" ? "I found it" : "I lost it"}
+              >
+                <IconDocument />
+                {item.kind === "lost" ? "I found it" : "I lost it"}
+              </button>
+            )}
           </div>
 
-          <p className="text-sm font-semibold mb-3" style={{ color: "#2C1414" }}>
-            {count} {count === 1 ? "comment" : "comments"}
-          </p>
+          {/* Plain ownership form (no card) shown when doc icon is clicked */}
+          {showClaimForm && !claimSubmitted && (
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                if (item.kind === "lost") {
+                  onSubmitFoundReport?.(item, [], claimNote);
+                } else {
+                  const payload = (item.challenge ?? []).map(q => ({ question_id: q.id, prompt: q.prompt, answer: (claimAnswers[q.id] ?? "").trim() }));
+                  onSubmitChallengeResponse?.(item.id, payload, claimNote);
+                }
+                setClaimSubmitted(true);
+              }}
+              className="flex flex-col gap-4 mb-4 pb-4"
+              style={{ borderBottom: "1px solid #C1856D" }}
+            >
+              {item.kind !== "lost" && (item.challenge ?? []).map((q, i) => (
+                <div key={q.id}>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {q.prompt} <span style={{ color: "#9A3F3F" }}>*</span></label>
+                  <input type="text" required className={inputCls} value={claimAnswers[q.id] ?? ""} onChange={ev => setClaimAnswers(v => ({ ...v, [q.id]: ev.target.value }))} />
+                </div>
+              ))}
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>
+                  {item.kind === "lost" ? "Note + questions for the owner (optional)" : "Note to finder (optional)"}
+                </label>
+                <textarea rows={3} className={inputCls + " resize-none"} value={claimNote} onChange={ev => setClaimNote(ev.target.value)} placeholder={item.kind === "lost" ? "Where you found it, questions to ask the owner…" : "Any additional details…"} />
+              </div>
+              <div className="flex gap-2">
+                <button type="submit" className={btnPrimary}>{item.kind === "lost" ? "Send to owner" : "Submit claim"}</button>
+                <button type="button" onClick={() => setShowClaimForm(false)} className={btnSecondary}>Cancel</button>
+              </div>
+            </form>
+          )}
+          {showClaimForm && claimSubmitted && (
+            <p className="text-sm font-medium mb-4 pb-4" style={{ color: "#9A3F3F", borderBottom: "1px solid #C1856D" }}>
+              {item.kind === "lost" ? "Sent to the owner — you'll be notified when they respond." : "Claim submitted!"}
+            </p>
+          )}
 
           {visibleComments.length === 0 ? (
             <p className="text-sm py-6 text-center" style={{ color: "#9A7070" }}>No comments yet. Be the first to comment.</p>
@@ -2128,7 +2197,7 @@ function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, o
                     <p className="text-sm font-semibold text-center py-2" style={{ color: "#9A3F3F" }}>
                       {isOwner
                         ? (report.status === "approved"
-                            ? `${report.responder_name} approved you — they'll arrange the return.`
+                            ? `${report.responder_name} approved you`
                             : `${report.responder_name} didn't approve this.`)
                         : (report.status === "approved" ? "You approved this owner." : "You rejected this.")}
                     </p>
@@ -3822,6 +3891,7 @@ export default function App() {
   const [challengeItem, setChallengeItem] = useState<Item | null>(null); // item whose challenge is being answered
   const [responsesItem, setResponsesItem] = useState<Item | null>(null); // finder viewing responses
   const [detailItem, setDetailItem] = useState<Item | null>(null); // full-screen post detail
+  const [detailInitialAction, setDetailInitialAction] = useState(false); // open action form immediately
   const [foundThisItem, setFoundThisItem] = useState<Item | null>(null); // lost-post "I found this" flow
   const [foundThisReportId, setFoundThisReportId] = useState<string | null>(null); // specific report to open (owner picking from list)
   const [search, setSearch] = useState("");
@@ -4086,7 +4156,12 @@ export default function App() {
   // "Prove it's yours" always opens the prove-ownership form. With a challenge it
   // shows the questions; without, it collects only the optional note.
   function handleClaimClick(item: Item) {
-    // Route to PostDetail — the inline OwnershipActionSection handles the form.
+    setDetailInitialAction(true);
+    setDetailItem(item);
+  }
+
+  function handleFoundThisClick(item: Item) {
+    setDetailInitialAction(true);
     setDetailItem(item);
   }
 
@@ -4154,7 +4229,7 @@ export default function App() {
     // On a lost-flow decision, notify the owner who answered.
     const r = challengeResponses.find(x => x.id === responseId);
     if (r?.kind === "lost" && r.owner_id) {
-      pushNotification(r.owner_id, `Your answer on "${itemTitle(r.item_id)}" was ${decision === "approved" ? "approved — the finder will arrange return" : "not approved"}.`, r.item_id, r.id);
+      pushNotification(r.owner_id, `Your answer on "${itemTitle(r.item_id)}" was ${decision === "approved" ? "approved" : "not approved"}.`, r.item_id, r.id);
     }
   }
 
@@ -4257,7 +4332,7 @@ export default function App() {
   return (
     <VerifiedContext.Provider value={verifiedIds}>
     <OpenDetailContext.Provider value={setDetailItem}>
-    <LostFlowContext.Provider value={{ currentUserId: user?.id ?? null, onFoundThis: setDetailItem }}>
+    <LostFlowContext.Provider value={{ currentUserId: user?.id ?? null, onFoundThis: handleFoundThisClick }}>
     <div className="min-h-screen" style={{ background: "#FBF9D1" }}>
       <Nav view={view} setView={setView} role={role} user={user} search={search} setSearch={setSearch} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} offlineQueueCount={offlineQueueCount} unreadCount={unreadCount} />
       <main>
@@ -4273,8 +4348,10 @@ export default function App() {
             onOpen={n => {
               const it = items.find(i => i.id === n.item_id);
               if (it) {
-                if (it.kind === "lost") { setFoundThisReportId(n.response_id ?? null); setFoundThisItem(it); }
-                else setDetailItem(it);
+                // Always open the full-screen PostDetail for uniformity.
+                setDetailItem(it);
+                // Also pre-select a specific report if the notification links to one.
+                if (n.response_id) setFoundThisReportId(n.response_id);
               }
             }}
           />
@@ -4326,7 +4403,7 @@ export default function App() {
           item={activeDetailItem}
           comments={comments[activeDetailItem.id] ?? []}
           currentUserId={user.id}
-          onBack={() => setDetailItem(null)}
+          onBack={() => { setDetailItem(null); setDetailInitialAction(false); }}
           onAddComment={(msg, visibility) => handleAddComment(activeDetailItem.id, msg, visibility)}
           onAddReply={(commentId, msg) => handleAddReply(activeDetailItem.id, commentId, msg)}
           onClaim={handleClaimClick}
@@ -4336,6 +4413,7 @@ export default function App() {
           onOwnerAnswer={handleOwnerAnswer}
           onApprove={id => handleChallengeDecision(id, "approved")}
           onReject={id => handleChallengeDecision(id, "rejected")}
+          initialActionOpen={detailInitialAction}
         />
       )}
       {foundThisItem && user && (
