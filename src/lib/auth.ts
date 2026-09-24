@@ -30,10 +30,27 @@ type AuthListener = (state: AuthState) => void;
 
 // ─── Shared helpers ────────────────────────────────────────────────────────
 
-// Role derivation: until a staff roster exists (Phase 3 / RLS), every
-// authenticated account is a standard non-staff user.
-function deriveRole(_user: User): Role {
-  return "owner";
+// Role derivation (Requirement 10.9): staff are listed by email in the
+// `public.staff` roster and checked through the `is_staff()` RPC. Any error
+// means non-staff; RLS is the real boundary, this only picks which views show.
+// Without Supabase, the roster comes from VITE_STAFF_EMAILS (local demos only).
+const MOCK_STAFF_EMAILS = String(import.meta.env.VITE_STAFF_EMAILS ?? "")
+  .split(",")
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
+
+function isMockStaff(email: string): boolean {
+  return MOCK_STAFF_EMAILS.includes(email.toLowerCase());
+}
+
+async function withRole(user: AuthUser): Promise<AuthUser> {
+  if (!supabase) return user;
+  try {
+    const { data, error } = await supabase.rpc("is_staff");
+    return !error && data === true ? { ...user, role: "staff" } : user;
+  } catch {
+    return user;
+  }
 }
 
 function mapUser(user: User): AuthUser {
@@ -47,7 +64,7 @@ function mapUser(user: User): AuthUser {
     name,
     email: user.email ?? "",
     avatar_url: (meta.avatar_url as string) || (meta.picture as string) || undefined,
-    role: deriveRole(user),
+    role: "owner",
   };
 }
 
@@ -56,7 +73,7 @@ function mapUser(user: User): AuthUser {
 function supabaseGetSession(): Promise<AuthUser | null> {
   return supabase!.auth.getSession().then(({ data }) => {
     const session = data.session as Session | null;
-    return session?.user ? mapUser(session.user) : null;
+    return session?.user ? withRole(mapUser(session.user)) : null;
   });
 }
 
@@ -76,11 +93,15 @@ async function supabaseSignOut(): Promise<void> {
 
 function supabaseOnAuthChange(listener: AuthListener): () => void {
   const { data } = supabase!.auth.onAuthStateChange((_event, session) => {
-    listener(
-      session?.user
-        ? { status: "signed_in", user: mapUser(session.user) }
-        : { status: "signed_out" },
-    );
+    if (!session?.user) {
+      listener({ status: "signed_out" });
+      return;
+    }
+    // Defer the RPC: Supabase warns against awaiting its own calls inside this callback.
+    const user = mapUser(session.user);
+    setTimeout(() => {
+      withRole(user).then(u => listener({ status: "signed_in", user: u }));
+    }, 0);
   });
   return () => data.subscription.unsubscribe();
 }
@@ -118,15 +139,21 @@ const MOCK_GOOGLE_USER: AuthUser = {
   role: "owner",
 };
 
+function withMockRole(user: AuthUser): AuthUser {
+  return { ...user, role: isMockStaff(user.email) ? "staff" : "owner" };
+}
+
 async function mockGetSession(): Promise<AuthUser | null> {
   await new Promise(r => setTimeout(r, 150));
-  return readStoredUser();
+  const user = readStoredUser();
+  return user ? withMockRole(user) : null;
 }
 
 async function mockSignInWithGoogle(): Promise<void> {
   await new Promise(r => setTimeout(r, 400));
-  writeStoredUser(MOCK_GOOGLE_USER);
-  mockListeners.forEach(l => l({ status: "signed_in", user: MOCK_GOOGLE_USER }));
+  const user = withMockRole(MOCK_GOOGLE_USER);
+  writeStoredUser(user);
+  mockListeners.forEach(l => l({ status: "signed_in", user }));
 }
 
 async function mockSignOut(): Promise<void> {

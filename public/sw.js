@@ -21,6 +21,17 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// Background sync (Chromium): the offline queue lives in page storage, so ask any
+// open page to replay it. Other browsers replay on the page's "online" event.
+self.addEventListener("sync", (event) => {
+  if (event.tag !== "foundit-replay") return;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clients) => {
+      clients.forEach((c) => c.postMessage({ type: "replay-queue" }));
+    }),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;

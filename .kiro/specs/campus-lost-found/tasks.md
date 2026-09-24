@@ -58,11 +58,12 @@ today; unchecked tasks are remaining work.
 
 ## Phase 2 — Data layer refactor (prep for backend)
 
-- [ ] 11. Extract types into a shared module and reconcile with the SQL schema
-  - Add `missing_notices.image_url`; separate `owner_name` from `Claim`.
+- [x] 11. Extract types into a shared module (`src/types.ts`) used by `App` and
+      `db.ts`; drop the duplicate `Db*` shapes and casts
+  - The original schema notes are obsolete (see design "Shared types module").
   - _Requirements: Future 2_
 
-- [ ] 12. Introduce a data-access layer abstraction
+- [x] 12. Introduce a data-access layer abstraction (`src/lib/db.ts`)
   - Wrap all reads/writes behind functions so mock data can be swapped for
     Supabase without touching components.
   - _Requirements: Future 2_
@@ -84,7 +85,7 @@ today; unchecked tasks are remaining work.
     display on failure/cancel.
   - _Requirements: 10 (1, 2, 7)_
 
-- [ ] 12c-1. Public landing page + signed-out routing (Requirement 10a)
+- [x] 12c-1. Public landing page + signed-out routing (Requirement 10a)
   - Add `LandingPage` component: brand wordmark, tagline, "how it works"
     summary (log → verify → claim → release), and a "Get started" CTA.
   - Add signed-out `authView` state (`"landing" | "login"`) to `App`; default to
@@ -117,19 +118,19 @@ today; unchecked tasks are remaining work.
 
 ## Phase 2.6 — AI caption import (Requirement 12)
 
-- [ ] 12h. `parse-caption` Supabase Edge Function
+- [x] 12h. `parse-caption` Supabase Edge Function
   - Accepts `{ caption }`, calls Gemini 1.5 Flash for strict JSON
     `{ title, category, location_found, description }`, validates/clamps
     category to the app list, returns JSON with CORS. Key via `GEMINI_API_KEY`
     secret.
   - _Requirements: 12 (2, 8)_
 
-- [ ] 12i. Client helper `src/lib/captionImport.ts`
+- [x] 12i. Client helper `src/lib/captionImport.ts`
   - `parseCaption(text)` invokes the Edge Function when Supabase is configured,
     else a local heuristic parser fallback.
   - _Requirements: 12 (2, 7)_
 
-- [ ] 12j. "Fill from caption" UI on `FinderForm`
+- [x] 12j. "Fill from caption" UI on `FinderForm`
   - Paste textarea + action; processing/disabled state; merges non-empty fields;
     fields stay editable; no auto-submit; message when nothing extracted. When
     the caption yields no time found, default "When did you find it?" to now
@@ -144,13 +145,13 @@ today; unchecked tasks are remaining work.
 
 ## Phase 2.7 — Functional item card actions (Requirement 5)
 
-- [ ] 13a. State + handlers in `App`
+- [x] 13a. State + handlers in `App`
   - `repostedIds: Set<string>`, `comments: Record<string, ItemComment[]>`;
     handlers for repost toggle, add-comment, and share (clipboard). `ItemComment`
     type added.
   - _Requirements: 5 (4, 6, 8, 9)_
 
-- [ ] 13b. Wire `ItemCard` buttons
+- [x] 13b. Wire `ItemCard` buttons
   - Repost toggle (active state + count), share copy-link with transient
     "Link copied" confirmation, comment toggles the thread; counts reflect real
     values.
@@ -166,14 +167,14 @@ today; unchecked tasks are remaining work.
     reveals an input; replies render indented; count includes replies.
   - _Requirements: 5 (15, 16, 17)_
 
-- [ ] 13d-1. Modal comment panel (Facebook-style pop-up)
+- [x] 13d-1. Modal comment panel (Facebook-style pop-up)
   - Replace the inline slide-down thread with a `CommentModal`: centered dialog
     over a dimmed backdrop, the full post rendered at the top, scrollable comment
     tree, sticky bottom composer. Comment button becomes a trigger. Dismiss via
     close button, backdrop click, and Escape.
   - _Requirements: 5 (11)_
 
-- [ ] 13d-2. Branching (nested) replies
+- [x] 13d-2. Branching (nested) replies
   - Unify comments/replies into one recursive `CommentNode` (`replies:
     CommentNode[]`). Recursive `CommentThread` render with per-node Reply input
     and increasing indentation; immutable add-reply walks the tree by parent id;
@@ -182,17 +183,17 @@ today; unchecked tasks are remaining work.
 
 ## Phase 2.8 — Facebook-style reposts + My Timeline (Requirements 5, 5a)
 
-- [ ] 13e. Repost data model + handlers
+- [x] 13e. Repost data model + handlers
   - `Repost` type; `reposts: Repost[]` state; add-repost (with optional caption)
     and remove-repost handlers; per-user "already reposted" lookup.
   - _Requirements: 5 (4, 5, 6, 8)_
 
-- [ ] 13f. Repost dialog
+- [x] 13f. Repost dialog
   - Activating Repost opens a dialog: optional caption + confirm, or remove
     existing repost.
   - _Requirements: 5 (4, 6)_
 
-- [ ] 13g. My Timeline view + nav
+- [x] 13g. My Timeline view + nav
   - `"timeline"` view and "My Timeline" nav item; list user's reposts (caption +
     quoted item card), empty state, remove control.
   - _Requirements: 5a (1, 2, 3, 4)_
@@ -203,22 +204,22 @@ today; unchecked tasks are remaining work.
 
 ## Phase 2.9 — Repost card actions + My Profile (Requirements 5, 5b)
 
-- [ ] 13i. Generalize engagement to post ids
+- [x] 13i. Generalize engagement to post ids
   - Key `upvotedIds` and `comments` by a generic post id (item id or repost id)
     so reposts carry their own upvote/comment state.
   - _Requirements: 5 (8a)_
 
-- [ ] 13j. Functional action row on repost cards
+- [x] 13j. Functional action row on repost cards
   - RepostCard gets upvote, comment thread (+replies), share; Repost targets the
     underlying item.
   - _Requirements: 5 (8a, 8b)_
 
-- [ ] 13k. My Profile view + nav
+- [x] 13k. My Profile view + nav
   - `"profile"` view + "Profile" nav item; header (avatar/name/email/sign-out);
     user's posts + reposts; empty state.
   - _Requirements: 5b (1–5)_
 
-- [ ] 13l. Client-side persistence via `localStorage` (Requirement 14)
+- [x] 13l. Client-side persistence via `localStorage` (Requirement 14)
   - `usePersistentState` hook: hydrate from `localStorage` on init (default on
     missing/malformed JSON), write on change; versioned `foundit:v1:` keys.
   - Persist `items`, `claims`, `notices`, `comments`, `reposts`, `upvotedIds`
@@ -253,24 +254,24 @@ today; unchecked tasks are remaining work.
 
 ## Phase 2.10 — Ownership Challenge ("Prove it's yours", Requirement 16)
 
-- [ ] 17a. Data model + App state/handlers
+- [x] 17a. Data model + App state/handlers
   - `ChallengeQuestion` on `Item.challenge?`; `ChallengeResponse` type;
     `challengeResponses` persistent state. Handlers: submit response, finder
     approve/reject, send-to-staff (creates a `Claim` from answers).
   - _Requirements: 16 (1, 3, 5, 6, 7)_
 
-- [ ] 17b. FinderForm challenge builder
+- [x] 17b. FinderForm challenge builder
   - Optional "Ownership challenge" section: add/remove short-text questions;
     attach `challenge` to the submitted item.
   - _Requirements: 16 (1)_
 
-- [ ] 17c. "Prove it's yours" action + `ChallengeModal`
+- [x] 17c. "Prove it's yours" action + `ChallengeModal`
   - Item card action becomes "Prove it's yours" when `item.challenge` exists;
     modal renders questions as short-text inputs + optional note; submit creates
     a response. Falls back to `ClaimModal` when no challenge.
   - _Requirements: 16 (2, 3, 8)_
 
-- [ ] 17d. Finder responses/analytics on own post
+- [x] 17d. Finder responses/analytics on own post
   - `ChallengeResponsesModal` opened from a "Responses (N)" control on the
     finder's own posts (Profile → Your posts): responder + answers + note +
     count; Approve / Reject / Send to staff.
@@ -278,35 +279,35 @@ today; unchecked tasks are remaining work.
 
 ## Phase 2.11 — Found/Lost toggle on the Log form (Requirement 1.0/3a)
 
-- [ ] 18a. FinderForm Found/Lost mode toggle
+- [x] 18a. FinderForm Found/Lost mode toggle
   - Title "Log a Found/Lost Item"; Found/Lost toggle. Found = existing found-item
     flow. Lost = missing-notice fields (description, location lost, time lost,
     optional photo); hide challenge, staff note, drop-off copy.
   - _Requirements: 1 (0, 1, 2, 3, 3a), 9_
 
-- [ ] 18b. Route submission + wire onPostNotice
+- [x] 18b. Route submission + wire onPostNotice
   - Found → onSubmit item (unchanged); Lost → onPostNotice(missing notice, with
     optional image_url). Add `image_url?` to MissingNotice.
   - _Requirements: 1 (3, 3a), 9_
 
 ## Phase 2.12 — Community photo view, author profile, inline post actions & polish
 
-- [ ] 21a. Community photo-centric catalog view toggle (Feed / Community)
+- [x] 21a. Community photo-centric catalog view toggle (Feed / Community)
   - Layout toggle in CatalogView header; responsive image grid for photo posts
     with minimal overlay (title, Lost/Found tag, location); click opens PostDetail.
   - _Requirements: 3.9_
 
-- [ ] 21b. Public author profile (`PublicProfileView` + `OpenAuthorContext`)
+- [x] 21b. Public author profile (`PublicProfileView` + `OpenAuthorContext`)
   - Clicking any author avatar or name opens PublicProfileView with their avatar,
     name, student verification badge, post count, and list of public posts.
   - _Requirements: 5c_
 
-- [ ] 21c. Inline action section inside `PostDetail` ("I found it" / "I lost it")
+- [x] 21c. Inline action section inside `PostDetail` ("I found it" / "I lost it")
   - Embed the challenge/lost report authoring and answering forms inline within
     PostDetail directly between the post body and comment thread.
   - _Requirements: 5 (19), 16 (2), 17 (2)_
 
-- [ ] 21d. Action row button styling + modal header polish + PWA logo text
+- [x] 21d. Action row button styling + modal header polish + PWA logo text
   - Share button transparent outline; modal headers "I lost it" / "I found it";
     clickable item card in ChallengeModal; "Foundit" typography in icon.svg.
   - _Requirements: 4 (4), 16, 17, Future 6_
@@ -318,63 +319,129 @@ Goal: all users see each other's posts by moving data from per-browser
 localStorage into shared Postgres, one slice at a time, with a localStorage
 fallback when Supabase isn't configured.
 
-- [ ] 19a. `items` table + RLS migration (apply to Supabase)
+- [x] 19a. `items` table + RLS migration (apply to Supabase)
   - Columns map the `Item` type (incl. `challenge jsonb`, `image_url`). RLS:
     authenticated read of `in_office`/`approved_for_pickup` (+ finder's own
     `pending_intake`); insert where `finder_id = auth.uid()`.
   - _Requirements: 3, 1; Phase 3_
 
-- [ ] 19b. Data-access layer `src/lib/db.ts` for items
+- [x] 19b. Data-access layer `src/lib/db.ts` for items
   - `listItems`, `createItem`, `subscribeItems` (Realtime); row⇄Item mapping;
     localStorage fallback when Supabase unconfigured.
   - _Requirements: 3; Phase 3_
 
-- [ ] 19c. Rewire App items to Supabase (load + realtime + insert)
+- [x] 19c. Rewire App items to Supabase (load + realtime + insert)
   - Replace `usePersistentState("items")` with db load + realtime; write via
     `createItem`. Other slices stay on localStorage until migrated.
   - _Requirements: 3; Phase 3_
 
-- [ ] 19d. Later slices: notices, claims, comments, reposts, challenge responses,
-      verifications (same pattern)
+- [x] 19d. Later slices: comments, reposts, challenge responses, verifications,
+      notifications (same pattern; migrations 0002–0004)
+  - Missing notices were superseded by `kind: "lost"` items (Requirement 9).
+  - Claims move in task 22b.
   - _Requirements: 6, 7, 9, 5, 16, 15; Phase 3_
+
+## Phase 3.3 — Staff roster, shared claims, upvotes, rate limit, audit
+
+- [x] 22a. Migration `0005_staff_claims_audit.sql`
+  - Written; must be run in the Supabase SQL editor (or via migration tooling)
+    before the claims/upvotes/staff features work against the shared db.
+  - `staff` roster + `is_staff()`; staff update/read policies on `items`;
+    `claims` + `claim_messages` with RLS and realtime; rate-limit trigger;
+    `escalate_challenge_response()`; `upvotes` table; `audit_logs` + triggers.
+  - _Requirements: 2 (6), 5 (3a), 6 (5, 6), 7, 8, 10 (9); Future 2, 3, 4_
+
+- [x] 22b. Staff role from the roster in `auth.ts`
+  - `is_staff` RPC after sign-in; `VITE_STAFF_EMAILS` in mock mode.
+  - _Requirements: 10 (8, 9)_
+
+- [x] 22c. Claims + claim messages in `db.ts` and `App`
+  - list/create/update-status/insert-message/subscribe; escalation via RPC;
+    staff replies use the staff member's own id; `localStorage` fallback.
+  - _Requirements: 6 (6), 7, 8_
+
+- [x] 22d. Claim rate limit on "Prove it's yours"
+  - Server triggers on `challenge_responses` and `claims`; client blocks the 4th
+    claim in 24h with "You can claim again after …". Remove unreachable
+    `ClaimModal`.
+  - _Requirements: 6 (5)_
+
+- [x] 22h. Post detail wiring
+  - Pass upvote/repost/share into `PostDetail`; detail "I lost it"/"I found it"
+    opens the inline form; render `OwnershipActionSection` for existing flows;
+    question builder on the lost-post form.
+  - _Requirements: 5 (19), 17 (2, 4, 6, 8)_
+
+- [x] 21e. Real photo re-encode (`src/lib/image.ts`) in `FinderForm`
+  - _Requirements: 1 (4); Future 1_
+
+- [x] 22e. Staff item status changes persisted (`updateItemStatus`)
+  - _Requirements: 2 (6), 8 (2, 4)_
+
+- [x] 22f. Shared upvotes (`listUpvotes`, `toggleUpvote`, `subscribeUpvotes`,
+      `UpvoteCountsContext`)
+  - _Requirements: 5 (1, 2, 3a)_
+
+- [x] 22g. Catalog empty state "Clear filters" action
+  - _Requirements: 3 (6)_
+
+## Phase 3.4 — Mobile navigation
+
+- [x] 23a. Mobile bottom tab bar (`BottomNav`)
+  - Feed / Community / raised "+" / Alerts (unread badge) / Profile; lift catalog
+    layout mode into `App`; hide header "+"/bell/avatar and the catalog toggle
+    below `md`; safe-area padding; staff variant without "+".
+  - _Requirements: 11a (3, 9), 3 (9), 18 (3)_
 
 ## Phase 3 — Supabase backend
 
-- [ ] 13. Provision schema, enums, and indexes (items, claims, claim_messages,
+- [x] 13. Provision schema, enums, and indexes (items, claims, claim_messages,
       missing_notices, item_upvotes, audit_logs)
+  - Done through migrations 0001–0005 (text ids and check constraints instead of
+    uuid FKs and enums; `missing_notices` superseded by `kind: "lost"`). Ticked
+    with 22a.
   - _Requirements: Future 2, 4_
 
-- [ ] 14. Row-Level Security policies and `is_staff()`
+- [x] 14. Row-Level Security policies and `is_staff()`
   - Finder/owner/staff isolation; public catalog restricted to active statuses;
     `private_note` never exposed publicly.
   - _Requirements: 2, 3, 6, 7; Future 2_
 
-- [ ] 15. Back the auth contract with real Supabase Auth
+- [x] 15. Back the auth contract with real Supabase Auth
   - Point `src/lib/auth.ts` at Supabase Auth's Google provider (replacing any
     interim mock); derive `Role` from the account/JWT `staff` claim.
   - _Requirements: 10; Future 2_
 
-- [ ] 16. Upvote concurrency and audit triggers
-  - `item_upvotes` table + counter trigger; audit trigger on items/claims.
+- [x] 16. Upvote concurrency and audit triggers
+  - `upvotes` table with a (post, user) primary key; counts are derived from the
+    rows instead of a counter trigger, so there's no counter to race. Audit
+    triggers on items/claims (migration 0005).
   - _Requirements: 5; Future 4_
 
-- [ ] 17. Claim rate-limiting Edge Function
+- [x] 17. Claim rate limiting (database trigger replaces the Edge Function; see
+      design "Claim rate limit"). Ticked with 22a/22d.
   - Max 3 claims per rolling 24h per user, enforced server-side.
   - _Requirements: 6; Future 3_
 
 ## Phase 4 — Media and offline
 
-- [ ] 18. Real client-side EXIF/GPS strip + WebP re-encode
-  - Replace the simulated processing in `FinderForm` with the Canvas pipeline;
-    upload to Storage.
+- [x] 18. Real client-side EXIF/GPS strip + WebP re-encode
+  - Canvas pipeline in `src/lib/image.ts` (task 21e). Photos stay as data URLs;
+    moving them to Supabase Storage is not done.
   - _Requirements: 1; Future 1_
 
-- [ ] 19. PWA shell + offline caching + background-sync replay
-  - Installable manifest; cache strategies per asset class; queued mutations.
+- [x] 19. PWA shell + offline caching + background-sync replay
+  - Done: installable manifest and app-shell service worker (`public/sw.js`).
+  - Offline intake queue (`src/lib/offlineQueue.ts`) with replay on reconnect,
+    app open, and background sync; "Waiting to sync" label; rejection banner.
+  - _Requirements: 1 (7, 8)_
   - _Requirements: Future 5, 6_
 
 ## Phase 5 — Quality
 
-- [ ] 20. Automated tests
-  - Data-access unit tests, RLS policy tests, and key UI integration tests.
+- [x] 20. Automated tests
+  - `node --test` unit tests for pure modules extracted from `App`/`db`/
+    `captionImport`: time labels, comment tree, claim limit, offline queue,
+    caption heuristic. `test` script in `package.json`.
+  - RLS policy tests and UI integration tests remain future work.
   - _Requirements: all_

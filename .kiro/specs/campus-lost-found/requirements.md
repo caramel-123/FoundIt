@@ -14,10 +14,11 @@ as the signed-in user creates them during a session. Authentication uses Google
 sign-in (Requirement 10). Application data is migrating from per-browser
 `localStorage` (Requirement 14) to **shared Supabase Postgres** (Phase 3) so all
 users see each other's posts. Migrated slices: items, comments, reposts,
-challenge responses, verifications, and notifications. **Claims and claim
-threads remain on `localStorage`.** The Supabase-backed architecture (Postgres,
-RLS, Auth, Storage, Edge Functions, PWA/offline) is the target for later phases
-and is captured in `design.md`.
+challenge responses, verifications, notifications, upvotes, and claims with
+their private threads. A staff roster in the database decides which accounts
+are staff. When Supabase is not configured, every slice falls back to
+`localStorage`. Offline background-sync replay is the main remaining target and
+is captured in `design.md`.
 
 ### Personas
 - **Finder** — found something, wants to log it fast (ideally from a phone,
@@ -60,12 +61,24 @@ optional photo, so that I can hand it to the office and have it tracked.
    catalog SHALL visually distinguish lost vs found posts (a "Lost"/"Found" tag).
    Lost items do not require the found-item custody steps.
 4. WHEN a photo is selected THEN the system SHALL show a processing state
-   indicating location metadata (EXIF/GPS) is being stripped before the file is
-   accepted.
+   while it re-encodes the image in the browser (canvas → WebP, falling back to
+   JPEG, longest side capped at 1600px). Re-encoding drops all EXIF/GPS metadata,
+   so only the re-encoded image is ever stored. IF the file cannot be decoded as
+   an image THEN the system SHALL reject it with a clear message.
 5. WHEN an item is created THEN the system SHALL confirm the log and instruct the
    finder to drop the item at the admin office to complete intake.
 6. WHERE the private note field is used THE system SHALL treat it as
    staff-visible only and never display it in the public catalog.
+7. WHERE the shared database is configured, IF the device is offline or the
+   network request fails when the user submits the Log form THEN the system
+   SHALL save the post in an on-device queue, confirm it as "saved — will post
+   when you're back online", and show it in the poster's own catalog marked
+   "Waiting to sync". The header SHALL show how many posts are waiting.
+8. WHEN the device comes back online, the app is opened, or the browser fires a
+   background-sync event THEN the system SHALL send the queued posts in order and
+   remove each one once the server accepts it. IF the server rejects a queued
+   post for a reason other than the network THEN the system SHALL remove it from
+   the queue and tell the user it could not be posted.
 
 ### Requirement 2 — Item status state machine
 
@@ -106,7 +119,8 @@ holding, so that I can find my lost item without a noisy social feed.
    THEN the system SHALL show only items in that category, or all items when
    "All" is selected.
 6. WHEN no items match the active search and filter THEN the system SHALL show an
-   empty state with an option to clear the filters.
+   empty state with a "Clear filters" action that resets the search to empty and
+   the category to "All".
 7. THE search field SHALL live in the app header (Reddit-style, centered) and
    drive the catalog filtering; it SHALL display the typed text clearly.
 8. Logging a found item is initiated from the header "+" button (Requirement
@@ -153,6 +167,9 @@ Upvote:
    count and clear the active state.
 3. THE system SHALL treat upvotes as an engagement signal only, with no effect on
    item status.
+3a. EACH user SHALL be able to upvote a post (item or repost) at most once. WHERE
+   the shared database is configured THE displayed count SHALL include upvotes
+   from all users and update live.
 
 Repost (Facebook-style):
 4. WHEN a user activates Repost on an item THEN the system SHALL open a dialog
@@ -215,7 +232,8 @@ Reply (branching / nested):
     and so on), each level rendered progressively indented so the branching
     structure is visible.
 19. THE post detail view SHALL render the full item's action row (upvote, repost,
-    share). Where the item is eligible for action ("I found it" or "I lost it"),
+    share), and those controls SHALL work the same as on the card. The "I lost
+    it" / "I found it" button in the detail view SHALL open the inline form. Where the item is eligible for action ("I found it" or "I lost it"),
     the action form SHALL be rendered inline directly below the post body and above
     the comment thread, so the user can see and reference the full post details
     while answering or challenging.
@@ -268,7 +286,21 @@ details, so that staff can verify it is mine without exposing me publicly.
 3. WHEN a claim is created THEN the system SHALL confirm submission and indicate
    staff will follow up in the claim thread.
 4. THE claim's identifying details SHALL be visible only to the owner and staff.
-5. THE system SHALL communicate a limit of 3 claims per rolling 24 hours per user.
+5. THE system SHALL communicate AND enforce a limit of 3 claims per rolling 24
+   hours per user. A claim here is a "Prove it's yours" submission on a found
+   post (Requirement 16), which is how owners claim items; claims that a finder
+   escalates to staff do not count against the owner. IF the user already has 3
+   claims in the last 24 hours THEN the
+   system SHALL block the new claim with a message saying when they can claim
+   again. WHERE the shared database is configured THE limit SHALL also be
+   enforced server-side, so a modified client cannot bypass it.
+6. WHERE the shared database is configured THE claims and their threads SHALL be
+   stored in it, so staff on any device see every claim and the owner sees staff
+   replies live.
+
+> Note: the standalone "Claim this item" modal was superseded by "Prove it's
+> yours" (Requirement 16) and removed. Staff claims now come only from a finder's
+> "Send to staff"; criteria 1–4 apply to those claims.
 
 ### Requirement 16 — Ownership Challenge ("Prove it's yours")
 
@@ -337,6 +369,12 @@ so I can safely return it.
    **Approve** (→ `approved`) or **Reject** (→ `rejected`).
 7. THE found report SHALL be visible only to the finder who created it and the
    lost post's owner.
+8. THE post detail view SHALL show the report flow for the current user inline:
+   the lost post's owner sees each report with answer fields while it is
+   `awaiting_owner`; the finder sees their report's status and, once `answered`,
+   the owner's answers with Approve / Reject. Opening a notification about a
+   report opens this post detail. A user who already has a report or ownership
+   claim on a post SHALL see its status instead of a new blank form.
 
 ### Requirement 18 — Notifications
 
@@ -443,6 +481,12 @@ managing a separate password.
 8. THE system SHALL derive the user's role from their account rather than a
    manual selector; WHERE no staff role is assigned THE account SHALL default to
    a standard (finder/owner) user.
+9. THE staff role SHALL be assigned through a staff roster keyed by email address,
+   kept in the database and editable only by a database administrator (not from
+   the app). WHEN a user signs in THEN the system SHALL look up the roster and
+   grant the staff role if their email is on it. WHERE Supabase is not configured
+   THE roster SHALL come from the `VITE_STAFF_EMAILS` build variable
+   (comma-separated), for local demos only.
 
 > Note: Requirement 11 ("Role-based navigation (demo)") describes the interim
 > demo role selector. Once Requirement 10 is implemented, the demo selector is
@@ -492,7 +536,8 @@ account are always reachable.
    and the user's profile avatar.
 2. THE "+" button SHALL open the Log Found Item form and SHALL NOT show a
    "Create" text label; it is icon-only.
-3. THE header SHALL NOT include a chat/messages icon or a notifications bell.
+3. THE header SHALL NOT include a chat/messages icon. On wide screens it SHALL
+   show the notifications bell with the unread count (Requirement 18.3).
 4. WHEN the user clicks the avatar THEN the system SHALL open the profile.
 5. THE header search SHALL be the single source of the catalog search query, and
    a category filter (All, Electronics, …) SHALL sit next to the search field in
@@ -503,6 +548,22 @@ account are always reachable.
    sidebar; clicking the overlay or a destination SHALL close it.
 8. THE sidebar SHALL show only the destinations permitted for the user's role and
    SHALL highlight the current section.
+9. ON narrow screens (below 768px) THE app SHALL show a fixed bottom tab bar with,
+   left to right: **Feed**, **Community**, a raised circular **+** button,
+   **Alerts**, and **Profile**. Each tab has an icon above a short label.
+   - Feed and Community open the catalog in that layout (Requirement 3.9); the
+     catalog's own Feed/Community toggle is hidden on narrow screens.
+   - "+" opens the Log a Found/Lost Item form. WHERE the user is staff (who
+     don't log items) THE "+" button SHALL be omitted.
+   - Alerts opens Notifications and shows the unread count as a badge.
+   - Profile opens the user's profile.
+   - The current tab SHALL be highlighted in the accent color; the others use
+     the muted text color.
+   - On narrow screens the header's "+", bell, and avatar SHALL be hidden (the
+     bottom bar replaces them); the hamburger, brand, and search stay.
+   - The bar SHALL respect the device's bottom safe area, and page content SHALL
+     not be hidden behind it.
+   - Full-screen overlays (post detail, author profile) cover the bar.
 
 ### Requirement 12 — AI caption import on the Log Item form
 
@@ -605,18 +666,23 @@ submitting my student ID or Certificate of Registration (COR), so that a
 
 ---
 
-## Future-phase requirements (not yet implemented)
+## Future-phase requirements
 
-These come from the original architecture and are targets for later phases; the
-current prototype does not implement them.
+These come from the original architecture. Struck-through items are now
+implemented.
 
-1. Client-side EXIF/GPS strip and WebP re-encode of photos before upload (real,
-   not simulated).
-2. Row-Level Security enforcing finder/owner/staff isolation at the database layer.
-3. Rate limiting of 3 claims per rolling 24 hours enforced server-side.
-4. Full audit trail (who changed what, when, old → new) on items and claims.
-5. Offline logging with Background-Sync replay for finder intake.
-6. PWA shell (installable, offline caching).
+1. ~~Client-side EXIF/GPS strip and WebP re-encode of photos~~ — implemented
+   (Requirement 1.4). Photos are stored as data URLs, not in Supabase Storage.
+2. ~~Row-Level Security enforcing finder/owner/staff isolation~~ — implemented
+   (migrations 0001–0005, `is_staff()`).
+3. ~~Rate limiting of 3 claims per rolling 24 hours enforced server-side~~ —
+   implemented as a database trigger (Requirement 6.5).
+4. ~~Full audit trail (who changed what, when, old → new) on items and claims~~ —
+   implemented as triggers writing `audit_logs`, readable by staff only.
+5. ~~Offline logging with Background-Sync replay for finder intake~~ —
+   implemented (Requirement 1.7–1.8).
+6. ~~PWA shell (installable, offline caching)~~ — implemented (`public/sw.js`,
+   `manifest.webmanifest`).
 
 ## Out of scope (v1)
 Push notifications, student-to-student chat, interactive campus maps, AI photo

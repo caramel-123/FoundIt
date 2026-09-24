@@ -679,6 +679,165 @@ mount, subscribe via `subscribeItems` for realtime inserts/updates, and write vi
 `createItem()` in `handleFinderSubmit`. Other slices remain on `localStorage`
 until their own migration lands.
 
+### Phase 3.3 — staff roster, shared claims, upvotes, rate limit, audit (migration `0005_staff_claims_audit.sql`)
+
+**Staff roster (Requirement 10.9).** `public.staff (email text primary key)` is
+edited only from the SQL editor (no insert/update policy for app users).
+`public.is_staff()` is a `security definer` SQL function that returns true when
+the JWT email (`auth.jwt() ->> 'email'`) is in the roster. `auth.ts` calls
+`supabase.rpc("is_staff")` after mapping the user and sets `role: "staff"` when
+it returns true; any RPC error means non-staff. In mock mode, `deriveRole`
+checks `VITE_STAFF_EMAILS`. RLS is the real boundary; the client role only picks
+which views are shown.
+
+**Items (Requirement 2.6, 8).** New `items_update_staff` policy lets staff update
+any item. `db.updateItemStatus(id, status)` is called from `handleStatusChange`
+so staff status changes reach every user. `items_select` also lets staff read
+`released` items.
+
+**Claims (Requirements 6, 7, 8).**
+
+```sql
+claims (id text pk, item_id text, owner_id text, owner_name text,
+        identifying_details text, status text check in
+        ('pending_review','approved','rejected'), created_at timestamptz)
+claim_messages (id text pk, claim_id text references claims on delete cascade,
+                sender_id text, sender_role text check in ('owner','staff'),
+                message text, created_at timestamptz)
+```
+
+RLS: the owner and staff read a claim; the owner inserts their own claim with
+status `pending_review`; only staff update a claim's status. Messages are
+readable by the claim owner and staff; a sender inserts only as themselves, and
+`sender_role = 'staff'` requires `is_staff()`. `db.ts` adds `listClaims`
+(claims with their messages nested, oldest message first), `createClaim`,
+`updateClaimStatus`, `insertClaimMessage`, and `subscribeClaims` (realtime on
+both tables). `App` loads and subscribes to claims like the other slices. When
+the finder escalates a challenge response, the finder is not the claim owner, so
+the claim is inserted by the finder through `escalate_challenge_response(id)`,
+a `security definer` function that checks the caller is that response's finder.
+
+**Claim rate limit (Requirement 6.5).** The design called for an Edge Function;
+`before insert` triggers are simpler and cannot be bypassed through PostgREST,
+so they replace it. Owners claim through "Prove it's yours", so the trigger on
+`challenge_responses` raises `claim_rate_limited` when the responder already has
+3 `kind = 'found'` responses with `created_at > now() - interval '24 hours'`.
+A second trigger on `claims` applies the same limit to any direct claim insert
+and skips escalated claims (created by `escalate_challenge_response`), since the
+claimant did not start them. Both triggers overwrite `created_at` with `now()` so
+a client can't backdate rows. The client runs the same check first
+(`claimBlockedUntil`) and shows "You can claim again after <time>" in the
+post-detail claim form instead of submitting. `ClaimModal` is removed; it was
+unreachable after Requirement 16.
+
+**Upvotes (Requirement 5.3a).** `upvotes (post_id text, user_id text, pk both)`.
+Anyone signed in can read; users insert/delete only their own rows. `App`
+derives `upvotedIds` (mine) and `upvoteCounts` (everyone) from the rows. An
+`UpvoteCountsContext` gives `PostActions` the number of *other* users' upvotes
+for a post, so the displayed count is `base + others + (mine ? 1 : 0)`.
+`item.upvotes` stays 0 for db-backed items.
+
+**Audit trail (Future 4).** `audit_logs (id bigserial, table_name, row_id,
+action, actor_id, old_row jsonb, new_row jsonb, created_at)`. An
+`after insert or update or delete` trigger on `items` and `claims` writes one
+row per change with `auth.uid()` as the actor. Only staff may read it; nobody
+writes to it directly (the trigger function is `security definer`). No UI in
+this phase.
+
+### Post detail wiring (Requirements 5.19, 17.8)
+
+`App` passes the upvote, repost, and share handlers into `PostDetail`. The
+detail's "I lost it" / "I found it" button opens the inline form (it no longer
+calls back into `App`). `OwnershipActionSection` is rendered between the post
+and the comments only when the user already has a flow on this post (their own
+response/report, or reports on their own lost post), so review and answering
+happen inline and notifications land somewhere useful. Otherwise the plain
+inline form is used; for a lost post it now includes the finder's question
+builder (Requirement 17.2).
+
+### Photo pipeline (Requirement 1.4)
+
+`src/lib/image.ts` exports `reencodeImage(file, maxSide = 1600)`. It decodes the
+file with `createImageBitmap` (falling back to an `<img>` element), draws it to a
+canvas scaled so the longest side is at most `maxSide`, and exports with
+`canvas.toDataURL("image/webp", 0.85)`, using JPEG when the browser returns a
+PNG (no WebP encoder). Canvas output has no EXIF block, so GPS and camera data
+are dropped. `FinderForm` shows its existing processing state while this runs
+and stores only the returned data URL. A decode failure shows "That file isn't
+an image we can read."
+
+### Public author profile (Requirement 5c)
+
+`App` holds `authorProfile: { id, name } | null` and provides it through
+`OpenAuthorContext`. Avatars and names on `ItemCard`, `PostDetail`, `RepostCard`,
+and `CommentThread` call `openAuthor(id, name)` (with `stopPropagation` so the
+card doesn't also open). `PublicProfileView` renders as a full-screen overlay
+like `PostDetail`: Back control, avatar, name, verified badge, public post count,
+and the author's public items newest first (same visibility rules as the
+catalog). Opening an item from it opens `PostDetail` above it, and Back returns
+to the profile, so the user keeps their place. Opening your own avatar shows the
+same public view.
+
+### Mobile bottom tab bar (Requirement 11a.9)
+
+`BottomNav` renders under `md` (768px) as a fixed bar at the bottom: cream
+background (`#FBF9D1`), a 1px terracotta top border, no blur, gradient, or glow.
+Five equal columns; the middle holds a 56px solid rust (`#9A3F3F`) circle with
+a cream "+" that sits about 18px above the bar, with a 4px cream ring so it
+reads as cut into the bar, and one soft rust-tinted shadow. Tabs are a 24px
+line icon (1.75 stroke, drawn to match the reference: Feed = mixed tile grid,
+Community = four equal tiles, Alerts = bell with ring marks, Profile = person
+in a circle) over an 11px medium label. Active tab: rust icon and label, Feed's
+tiles filled; inactive: `#6B3A3A`. Press feedback is a 0.96 scale on the "+"
+(skipped under `prefers-reduced-motion`). The bar pads by
+`env(safe-area-inset-bottom)`, and `<main>` gets matching bottom padding on
+narrow screens.
+
+The catalog layout (`feed` / `community`) moves from `CatalogView` state up to
+`App` (still persisted as `foundit:v1:catalogMode`) so both the bottom bar and
+the in-page toggle drive it. The in-page toggle is `hidden md:flex`. In `Nav`,
+the "+", bell, and avatar get `hidden md:inline-flex`. Staff (`canCreate`
+false) get a four-tab bar without the "+".
+
+### Catalog Feed / Community toggle (Requirement 3.9)
+
+`CatalogView` has a two-option segmented control ("Feed" / "Community") above
+the list. Community renders the photo grid shared with `GalleryView` (extracted
+as `PhotoGrid`) over the same filtered items, so search and category still
+apply. The chosen mode is kept in `localStorage` (`foundit:v1:catalogMode`).
+
+### Offline intake queue (Requirement 1.7–1.8)
+
+`src/lib/offlineQueue.ts` is a small pure module over a `Storage`-like object
+(`getItem`/`setItem`) so it can be unit tested. The queue lives under
+`foundit:v1:offlineQueue` as a JSON array of items. Functions: `readQueue`,
+`enqueue`, `removeFromQueue`, and `replayQueue(storage, send)`, which sends items
+oldest first and stops at the first `"retry"` so order is kept. `send` returns
+`"ok"` (remove), `"retry"` (keep, stop), or `"failed"` (remove and report).
+
+`db.createItem` returns `"ok" | "retry" | "failed"`: a duplicate primary key
+(`23505`, the earlier attempt actually landed) counts as `"ok"`; a fetch/network
+error or `navigator.onLine === false` is `"retry"`; anything else is `"failed"`.
+`App` enqueues on `"retry"` (or skips the request when already offline), merges
+queued items into the catalog so the poster still sees them (status label
+"Waiting to sync"), and replays on the `online` event, on sign-in, and when the
+service worker posts `{ type: "replay-queue" }`. On enqueue, `App` registers a
+background-sync tag (`foundit-replay`) where `registration.sync` exists
+(Chromium); `sw.js` handles the `sync` event by messaging open clients to
+replay, since the queue lives in page storage. Rejected posts show a dismissible
+banner under the header. Dexie/Workbox from the original target design are not
+used; the queue is small and `localStorage` is enough.
+
+### Shared types module (task 11)
+
+The app's data types (`Item`, `Claim`, `ChallengeResponse`, `CommentNode`,
+`Repost`, `StudentVerification`, `AppNotification`, …) live in `src/types.ts`.
+Both `App.tsx` and `src/lib/db.ts` import them, so `db.ts` no longer keeps
+duplicate `Db*` shapes and `App` no longer needs `as unknown as` casts. The
+original task's schema notes are obsolete: missing notices were replaced by
+`kind: "lost"` items, and `owner_name` stays on `Claim` because the `claims`
+table stores it (denormalized for staff views).
+
 ## Error handling & edge cases (current prototype)
 
 - Empty search/filter result renders a clear empty state with a reset action.
@@ -689,6 +848,16 @@ until their own migration lands.
 
 ## Testing strategy
 
-- No automated tests exist yet. Type safety is enforced via `tsc --noEmit`.
-- When the backend is introduced, add unit tests around the data-access layer and
-  RLS policy tests at the database layer before UI integration tests.
+- Unit tests use Node's built-in runner (`node --test`), which runs TypeScript
+  directly on Node 22.18+/24, so no test framework dependency is added. Run with
+  `npm test` / `pnpm test`.
+- Tested modules are pure (no `import.meta.env`, no Supabase client, no DOM):
+  `src/lib/time.ts` (relative/posted labels), `src/lib/comments.ts` (tree build,
+  count, nested reply insert, private-comment visibility),
+  `src/lib/claimLimit.ts` (3-per-24h window), `src/lib/offlineQueue.ts`, and
+  `src/lib/captionHeuristic.ts` (local caption parser). Logic is extracted from
+  `App.tsx`/`db.ts`/`captionImport.ts` into these modules so tests exercise the
+  code the app runs.
+- Type safety: `tsc --noEmit` and `vite build`.
+- Not covered yet: RLS policy tests against a database and UI integration
+  tests; both need infrastructure (a local Supabase stack, a browser runner).
