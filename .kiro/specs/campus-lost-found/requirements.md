@@ -189,6 +189,8 @@ that I can quickly scan who posted it, when, and what it is.
 5. WHERE the item is claimable by the current role THE system SHALL show a
    found-post action labeled **"I lost it"** (Requirement 16) or, on a lost post,
    **"I found it"** (Requirement 17), aligned to the bottom-right of the card.
+   The button also shows to the post's author, for whom it opens the post
+   detail on the ownership panel (claims / verification forms received).
 
 ### Requirement 5 — Item card actions (upvote, comment, repost, share)
 
@@ -424,8 +426,10 @@ want to reach out and verify they are the real owner by asking my own questions,
 so I can safely return it.
 
 #### Acceptance Criteria
-1. WHERE a post is a lost item AND the current user is not its owner THE system
-   SHALL show an **"I found this"** action.
+1. WHERE a post is a lost item THE system SHALL show an **"I found this"**
+   action on its card, including to the post's own author. For the author it
+   opens the post detail on the ownership panel (the verification forms they
+   received) instead of starting a report.
 2. WHEN a user activates "I found this" THEN the system SHALL open a form where
    the finder authors **their own challenge questions** (short text) and an
    optional **note**, then submits a **found report** with status
@@ -667,15 +671,16 @@ account are always reachable.
    bar's Community tab covers the photo grid.
 8. ~~Sidebar role filtering~~ — removed with the sidebar.
 9. ON narrow screens (below 768px) THE app SHALL show a fixed bottom tab bar with,
-   left to right: **Feed**, **Community**, a square red **+** button,
-   **Alerts**, and **Profile**. Each tab has an icon above a short label.
+   left to right: **Feed**, **Community**, a wide rectangular soft-black **+** button,
+   **Alerts**, and **Profile**. Tabs are icon-only (no visible text label);
+   each keeps its name as an accessible label.
    - Feed opens the catalog; Community opens the Gallery (Requirement 3.9).
    - "+" opens the Log a Found/Lost Item form. WHERE the user is staff (who
      don't log items) THE "+" button SHALL be omitted.
    - Alerts opens Notifications and shows the unread count as a badge.
    - Profile opens the user's profile.
-   - The current tab SHALL be highlighted in the accent color; the others use
-     the muted text color.
+   - The current tab SHALL be highlighted in soft black (`#3A3A3A`); the others
+     use grey (`#6B7280`).
    - On narrow screens the header's "+", Gallery, bell, and avatar SHALL be
      hidden (the bottom bar replaces them); the brand and search stay.
    - The bar SHALL respect the device's bottom safe area, and page content SHALL

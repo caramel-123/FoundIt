@@ -251,6 +251,9 @@ visible item shows as a reposted card quoting the original.
   `#2C1414`) exposed as CSS theme tokens in `index.css`. Text and icons on rust
   fills are white. One accent (rust); no competing accent colors. The app's
   home-screen icon keeps its original cream artwork.
+- **Black:** every "black" (text, primary buttons, tags, dots) is one soft
+  black, `#3A3A3A`, not pure or near-pure black; secondary text is grey
+  (`#6B7280`).
 - **Typography:** all body and UI text uses the device's **system font**
   (`-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
   sans-serif` — SF Pro on Apple devices, Segoe UI on Windows, Roboto on
@@ -870,13 +873,23 @@ unchanged: posts still store `title` and `description`.
 
 `BottomNav` renders under `md` (768px) as a fixed bar at the bottom: white
 background, a 1px sand top border, no blur, gradient, or glow.
-Five equal columns; the middle holds a flat 44px square button (8px corner
-radius) filled rust red (`#9A3F3F`) with a white "+", sitting inline in the
+Five equal columns; the middle holds a flat 56×36px rectangular button (8px
+corner radius) filled soft black (`#3A3A3A`) with a white "+", sitting inline in the
 bar (not raised, no ring, no shadow); it darkens slightly while on the Log
-form. Tabs are a 24px
-icon over an 11px medium label: Feed = house, Community = 3×3 tile grid,
-Alerts = bell, Profile = person in a circle. Active tab: rust icon and label,
-and the house, bell, and profile head fill in; inactive: `#6B3A3A`.
+form. Tabs are a 24px icon only
+(the tab name is its `aria-label`): Feed = house, Community = 3×3 tile grid,
+Alerts = bell, Profile = person in a circle. Active tab: soft-black icon and
+label, and the house, bell, and profile head fill in; inactive: grey `#6B7280`.
+The bar's top edge is `#E5E5E5`.
+
+### Form-card style (verification forms, reports, claims, caption pop-up)
+
+All cards built on the verification-form template share one neutral look: no
+outline, a light grey fill (`#F7F7F8`), soft black (`#3A3A3A`) headings/questions/
+names, grey (`#6B7280`) secondary text and status chips (`#ECECEE` fill), white
+inputs with a light grey edge (`#E5E5E5`), a black primary button, and
+grey-edged secondary buttons. The "Create verification form" entry card uses a
+dashed grey edge. The accent red is not used inside these cards.
 
 ### Icon style
 

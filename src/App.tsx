@@ -239,11 +239,11 @@ function SyncChip() {
   );
 }
 
-function VerificationBadge({ size = 14 }: { size?: number }) {
+function VerificationBadge({ size = 14, color = "#9A3F3F" }: { size?: number; color?: string }) {
   return (
     <span
       className="inline-flex items-center justify-center shrink-0"
-      style={{ color: "#9A3F3F" }}
+      style={{ color }}
       title="Verified student"
       aria-label="Verified student"
     >
@@ -297,7 +297,7 @@ function AuthorLink({ id, name, size, textClass }: { id: string; name: string; s
       className="flex items-center gap-1.5 min-w-0 hover:opacity-80"
     >
       <Avatar id={id} name={name} size={size} />
-      <span className={textClass + " hover:underline truncate"} style={{ color: "#111111" }}>{name}</span>
+      <span className={textClass + " hover:underline truncate"} style={{ color: "#3A3A3A" }}>{name}</span>
     </button>
   );
 }
@@ -509,11 +509,19 @@ function IconWifi() {
 // ─── Input styles (shared) ────────────────────────────────────────────────────
 
 const inputCls = "w-full px-3 py-2.5 text-sm rounded-lg focus:outline-none focus:ring-2 border"
-  + " bg-[#FFFFFF] border-[#C1856D] text-[#2C1414] placeholder:text-[#9A7070]"
+  + " bg-[#FFFFFF] border-[#C1856D] text-[#3A3A3A] placeholder:text-[#9A7070]"
   + " focus:ring-[#9A3F3F] focus:border-[#9A3F3F]";
 
 const btnPrimary = "px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors text-[#FFFFFF] bg-[#9A3F3F] hover:bg-[#7A2E2E]";
 const btnSecondary = "px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors border border-[#C1856D] text-[#9A3F3F] hover:bg-[#F5ECEC]";
+
+// Neutral form-card style: verification forms, reports, claims, caption pop-up.
+const formInputCls = "w-full px-3 py-2.5 text-sm rounded-lg focus:outline-none focus:ring-2 border"
+  + " bg-[#FFFFFF] border-[#E5E5E5] text-[#3A3A3A] placeholder:text-[#9CA3AF]"
+  + " focus:ring-[#3A3A3A]/15 focus:border-[#9CA3AF]";
+const btnDark = "px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors text-[#FFFFFF] bg-[#3A3A3A] hover:bg-[#525252]";
+const btnGrey = "px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors border border-[#E5E5E5] text-[#3A3A3A] bg-[#FFFFFF] hover:bg-[#F2F2F2]";
+const FORM_CARD_BG = "#F7F7F8";
 
 // ─── Post Actions (shared by item cards and repost cards) ───────────────────────
 
@@ -563,7 +571,7 @@ function PostActions({
         <button
           onClick={() => onUpvote?.(postId)}
           className="flex items-center gap-1.5 text-xs font-medium px-1.5 py-1 rounded-md transition-opacity hover:opacity-70"
-          style={{ color: upvoted ? "#111111" : "#6B7280" }}
+          style={{ color: upvoted ? "#3A3A3A" : "#6B7280" }}
         >
           <IconChevronUp filled={upvoted} />
           <span>{baseUpvotes + othersUpvotes + (upvoted ? 1 : 0)}</span>
@@ -582,7 +590,7 @@ function PostActions({
         <button
           onClick={() => onRepost?.(repostItem)}
           className="flex items-center gap-1.5 text-xs font-medium px-1.5 py-1 rounded-md transition-opacity hover:opacity-70"
-          style={{ color: reposted ? "#111111" : "#6B7280" }}
+          style={{ color: reposted ? "#3A3A3A" : "#6B7280" }}
           aria-label="Repost"
           aria-pressed={reposted}
           title={reposted ? "You reposted this" : "Repost"}
@@ -601,7 +609,7 @@ function PostActions({
           <IconShare />
         </button>
 
-        {shareMsg && <span className="text-xs font-medium" style={{ color: "#111111" }}>{shareMsg}</span>}
+        {shareMsg && <span className="text-xs font-medium" style={{ color: "#3A3A3A" }}>{shareMsg}</span>}
 
         {extra}
       </div>
@@ -660,7 +668,7 @@ function QuestionBuilder({ questions, onChange }: {
         <div key={q.id} className="flex flex-col gap-1.5">
           <div className="flex items-start justify-between gap-2">
             {editingId === q.id ? (
-              <div className="flex items-baseline gap-1 flex-1 min-w-0 text-sm font-medium" style={{ color: "#2C1414" }}>
+              <div className="flex items-baseline gap-1 flex-1 min-w-0 text-sm font-medium" style={{ color: "#3A3A3A" }}>
                 <span className="shrink-0">{i + 1}.</span>
                 {/* Edit in place: no box, just the caret. */}
                 <input
@@ -676,18 +684,18 @@ function QuestionBuilder({ questions, onChange }: {
                   placeholder="Type your question"
                   aria-label={`Edit question ${i + 1}`}
                   className="flex-1 min-w-0 p-0 border-0 bg-transparent outline-none text-sm font-medium"
-                  style={{ color: "#2C1414", caretColor: "#9A3F3F" }}
+                  style={{ color: "#3A3A3A", caretColor: "#3A3A3A" }}
                 />
               </div>
             ) : (
-              <p className="text-sm font-medium flex items-center gap-1.5 min-w-0" style={{ color: "#2C1414" }}>
+              <p className="text-sm font-medium flex items-center gap-1.5 min-w-0" style={{ color: "#3A3A3A" }}>
                 <span className="break-words">{i + 1}. {q.prompt}</span>
-                <button type="button" onClick={() => startEdit(q)} aria-label={`Edit question ${i + 1}`} className="shrink-0 hover:opacity-70" style={{ color: "#9A7070" }}>
+                <button type="button" onClick={() => startEdit(q)} aria-label={`Edit question ${i + 1}`} className="shrink-0 hover:opacity-70" style={{ color: "#6B7280" }}>
                   <IconPen />
                 </button>
               </p>
             )}
-            <button type="button" onMouseDown={ev => ev.preventDefault()} onClick={() => { if (editingId === q.id) setEditingId(null); remove(q.id); }} aria-label={`Remove question ${i + 1}`} className="shrink-0 hover:opacity-70" style={{ color: "#9A7070" }}>
+            <button type="button" onMouseDown={ev => ev.preventDefault()} onClick={() => { if (editingId === q.id) setEditingId(null); remove(q.id); }} aria-label={`Remove question ${i + 1}`} className="shrink-0 hover:opacity-70" style={{ color: "#6B7280" }}>
               <IconX />
             </button>
           </div>
@@ -698,7 +706,7 @@ function QuestionBuilder({ questions, onChange }: {
             aria-label={`Owner's answer to question ${i + 1} (preview)`}
             placeholder="Owner's answer"
             className="w-full sm:w-2/3 h-9 px-3 text-sm rounded-lg border"
-            style={{ borderColor: "#E6CFA9", background: "#FFFFFF", color: "#9A7070" }}
+            style={{ borderColor: "#E5E5E5", background: "#FFFFFF", color: "#9CA3AF" }}
           />
         </div>
       ))}
@@ -707,7 +715,7 @@ function QuestionBuilder({ questions, onChange }: {
         onMouseDown={ev => ev.preventDefault()}
         onClick={add}
         className="inline-flex items-center gap-1 self-start text-sm font-semibold hover:opacity-70"
-        style={{ color: "#9A3F3F" }}
+        style={{ color: "#3A3A3A" }}
       >
         + Add question
       </button>
@@ -721,15 +729,15 @@ function CreateFormCard({ onOpen, className = "" }: { onOpen: () => void; classN
     <button
       type="button"
       onClick={onOpen}
-      className={"w-full px-4 py-4 rounded-xl flex items-center gap-3 text-left transition-colors hover:bg-[#F5ECEC] " + className}
-      style={{ border: "1.5px dashed #C1856D", color: "#2C1414" }}
+      className={"w-full px-4 py-4 rounded-xl flex items-center gap-3 text-left transition-colors hover:bg-[#F7F7F8] " + className}
+      style={{ border: "1.5px dashed #D1D5DB", color: "#3A3A3A" }}
     >
-      <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
+      <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "#ECECEE", color: "#6B7280" }}>
         <IconPlus />
       </span>
       <span className="min-w-0">
         <span className="block text-sm font-semibold">Create verification form</span>
-        <span className="block text-xs" style={{ color: "#6B3A3A" }}>Ask questions only the real owner can answer.</span>
+        <span className="block text-xs" style={{ color: "#6B7280" }}>Ask questions only the real owner can answer.</span>
       </span>
     </button>
   );
@@ -748,24 +756,24 @@ function SubmittedAnswers({ answers, emptyAnswerText, note, noteLabel, ownerNote
     <div className="flex flex-col gap-4">
       {answers.map((a, i) => (
         <div key={a.question_id} className="flex flex-col gap-1.5">
-          <p className="text-sm font-medium" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</p>
+          <p className="text-sm font-medium" style={{ color: "#3A3A3A" }}>{i + 1}. {a.prompt}</p>
           {/* Read-only answer box, same shape as the form's answer field. */}
           <div
             className="w-full sm:w-2/3 min-h-9 px-3 py-2 text-sm rounded-lg border break-words"
-            style={{ borderColor: a.answer ? "#C1856D" : "#E6CFA9", color: a.answer ? "#2C1414" : "#9A7070" }}
+            style={{ borderColor: "#E5E5E5", background: "#FFFFFF", color: a.answer ? "#3A3A3A" : "#6B7280" }}
           >
             {a.answer || emptyAnswerText}
           </div>
         </div>
       ))}
       {note && (
-        <p className="text-sm" style={{ color: "#6B3A3A" }}>
-          <span className="font-medium" style={{ color: "#2C1414" }}>{noteLabel}:</span> {note}
+        <p className="text-sm" style={{ color: "#6B7280" }}>
+          <span className="font-medium" style={{ color: "#3A3A3A" }}>{noteLabel}:</span> {note}
         </p>
       )}
       {ownerNote && (
-        <p className="text-sm" style={{ color: "#6B3A3A" }}>
-          <span className="font-medium" style={{ color: "#2C1414" }}>Owner's reply:</span> {ownerNote}
+        <p className="text-sm" style={{ color: "#6B7280" }}>
+          <span className="font-medium" style={{ color: "#3A3A3A" }}>Owner's reply:</span> {ownerNote}
         </p>
       )}
     </div>
@@ -828,10 +836,10 @@ function OwnershipActionSection({
         const report = openReport;
         return (
           <div className="flex flex-col gap-3">
-            <button type="button" onClick={() => setOpenReportId(null)} className="inline-flex items-center gap-1.5 self-start text-xs font-medium hover:opacity-70" style={{ color: "#6B3A3A" }}>
+            <button type="button" onClick={() => setOpenReportId(null)} className="inline-flex items-center gap-1.5 self-start text-xs font-medium hover:opacity-70" style={{ color: "#6B7280" }}>
               <IconArrowLeft /> All forms
             </button>
-            <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+            <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ background: FORM_CARD_BG }}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <button
@@ -842,20 +850,20 @@ function OwnershipActionSection({
                 >
                   <Avatar id={report.responder_id} name={report.responder_name} size={32} />
                 </button>
-                <p className="text-sm font-semibold min-w-0" style={{ color: "#2C1414" }}>
+                <p className="text-sm font-semibold min-w-0" style={{ color: "#3A3A3A" }}>
                   <button type="button" onClick={() => openAuthor(report.responder_id, report.responder_name)} className="hover:underline">
                     {report.responder_name}
                   </button>
                   's verification form
                 </p>
               </div>
-              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0" style={{ background: "#ECECEE", color: "#6B7280" }}>
                 {report.status.replace("_", " ")}
               </span>
             </div>
             {report.note && (
-              <p className="text-sm" style={{ color: "#6B3A3A" }}>
-                <span className="font-medium" style={{ color: "#2C1414" }}>Finder's note:</span> {report.note}
+              <p className="text-sm" style={{ color: "#6B7280" }}>
+                <span className="font-medium" style={{ color: "#3A3A3A" }}>Finder's note:</span> {report.note}
               </p>
             )}
             {report.status === "awaiting_owner" ? (
@@ -873,7 +881,7 @@ function OwnershipActionSection({
               >
                 {report.answers.map((a, i) => (
                   <div key={a.question_id} className="flex flex-col gap-1.5">
-                    <p className="text-sm font-medium" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</p>
+                    <p className="text-sm font-medium" style={{ color: "#3A3A3A" }}>{i + 1}. {a.prompt}</p>
                     <input
                       type="text"
                       required
@@ -881,12 +889,12 @@ function OwnershipActionSection({
                       value={ownerAnswers[`${report.id}:${a.question_id}`] ?? ""}
                       onChange={ev => setOwnerAnswers(prev => ({ ...prev, [`${report.id}:${a.question_id}`]: ev.target.value }))}
                       placeholder="Your answer"
-                      className={inputCls + " sm:w-2/3"}
+                      className={formInputCls + " sm:w-2/3"}
                     />
                   </div>
                 ))}
                 <div className="flex flex-col gap-1.5">
-                  <p className="text-sm font-medium" style={{ color: "#2C1414" }}>
+                  <p className="text-sm font-medium" style={{ color: "#3A3A3A" }}>
                     {report.answers.length === 0 ? "Your answer" : "Note to finder (optional)"}
                   </p>
                   <input
@@ -896,14 +904,14 @@ function OwnershipActionSection({
                     value={ownerAnswers[`${report.id}:note`] ?? ""}
                     onChange={ev => setOwnerAnswers(prev => ({ ...prev, [`${report.id}:note`]: ev.target.value }))}
                     placeholder={report.answers.length === 0 ? "Answer the finder's question" : "e.g. Thanks! When can I pick it up?"}
-                    className={inputCls + " sm:w-2/3"}
+                    className={formInputCls + " sm:w-2/3"}
                   />
                 </div>
-                <button type="submit" className={btnPrimary + " self-start"}>Submit answers</button>
+                <button type="submit" className={btnDark + " self-start"}>Submit</button>
               </form>
             ) : (
               <>
-                <p className="text-xs" style={{ color: "#6B3A3A" }}>
+                <p className="text-xs" style={{ color: "#6B7280" }}>
                   {report.status === "answered" ? `Answers submitted. Waiting for ${report.responder_name} to review.`
                     : report.status === "approved" ? `${report.responder_name} approved you.`
                     : `${report.responder_name} didn't approve these answers.`}
@@ -919,7 +927,6 @@ function OwnershipActionSection({
       // The list: one rectangular card per verification form received.
       return (
         <div className="flex flex-col gap-3">
-          <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Verification forms ({reportsForOwner.length})</p>
           {reportsForOwner.map(report => {
             const waiting = report.status === "awaiting_owner";
             const n = report.answers.length;
@@ -928,21 +935,18 @@ function OwnershipActionSection({
                 key={report.id}
                 type="button"
                 onClick={() => setOpenReportId(report.id)}
-                className="w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 transition-colors hover:bg-[#FBF7F4]"
-                style={{ border: `1px solid ${waiting ? "#9A3F3F" : "#E6CFA9"}` }}
+                className="w-full text-left px-3 py-2.5 rounded-xl flex items-center gap-3 transition-colors hover:bg-[#F2F2F2]"
+                
               >
                 <Avatar id={report.responder_id} name={report.responder_name} size={32} />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold truncate" style={{ color: "#2C1414" }}>{report.responder_name}</span>
-                  <span className="block text-xs" style={{ color: "#6B3A3A" }}>
-                    {n === 0 ? "Note only" : `${n} ${n === 1 ? "question" : "questions"}`} · {postedLabel(report.created_at)}
+                  <span className="block text-sm font-semibold truncate" style={{ color: "#3A3A3A" }}>{report.responder_name}</span>
+                  <span className="block text-xs" style={{ color: "#6B7280" }}>
+                    {n === 0 ? "Note only" : `${n} ${n === 1 ? "question" : "questions"}`}
                   </span>
                 </span>
-                <span
-                  className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0"
-                  style={waiting ? { background: "#9A3F3F", color: "#FFFFFF" } : { background: "#F5ECEC", color: "#9A3F3F" }}
-                >
-                  {waiting ? "Answer" : report.status.replace("_", " ")}
+                <span className="text-xs shrink-0" style={{ color: "#6B7280" }}>
+                  {postedLabel(report.created_at)}
                 </span>
               </button>
             );
@@ -953,14 +957,14 @@ function OwnershipActionSection({
 
     if (myResponse) {
       return (
-        <div className="flex flex-col gap-3 rounded-xl p-4 sm:p-5" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+        <div className="flex flex-col gap-3 rounded-xl p-4 sm:p-5" style={{ background: FORM_CARD_BG }}>
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Your found report</p>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
+            <p className="text-sm font-semibold" style={{ color: "#3A3A3A" }}>Your found report</p>
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#ECECEE", color: "#6B7280" }}>
               {myResponse.status.replace("_", " ")}
             </span>
           </div>
-          <p className="text-xs" style={{ color: "#6B3A3A" }}>
+          <p className="text-xs" style={{ color: "#6B7280" }}>
             {myResponse.status === "awaiting_owner" ? "Waiting for the owner to answer your verification questions…"
               : myResponse.status === "answered" ? "The owner answered. Check their answers, then approve or reject."
               : myResponse.status === "approved" ? "You approved this owner."
@@ -980,15 +984,15 @@ function OwnershipActionSection({
                   type="button"
                   onClick={() => onApprove?.(myResponse.id)}
                   className="px-3 py-1.5 text-xs font-semibold rounded-lg"
-                  style={{ background: "#9A3F3F", color: "#FFFFFF" }}
+                  style={{ background: "#3A3A3A", color: "#FFFFFF" }}
                 >
                   Approve owner
                 </button>
                 <button
                   type="button"
                   onClick={() => onReject?.(myResponse.id)}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#C1856D]"
-                  style={{ color: "#9A3F3F", background: "transparent" }}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#E5E5E5]"
+                  style={{ color: "#3A3A3A", background: "transparent" }}
                 >
                   Reject
                 </button>
@@ -1004,14 +1008,14 @@ function OwnershipActionSection({
         {!isOpen ? (
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>Did you find this item?</h3>
-              <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>Ask questions to verify the real owner.</p>
+              <h3 className="font-semibold text-sm" style={{ color: "#3A3A3A" }}>Did you find this item?</h3>
+              <p className="text-xs mt-0.5" style={{ color: "#6B7280" }}>Ask questions to verify the real owner.</p>
             </div>
             <button
               type="button"
               onClick={() => setIsOpen(true)}
               className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors"
-              style={{ background: "#9A3F3F", color: "#FFFFFF" }}
+              style={{ background: "#3A3A3A", color: "#FFFFFF" }}
             >
               I found it
             </button>
@@ -1026,14 +1030,14 @@ function OwnershipActionSection({
             className="flex flex-col gap-3"
           >
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>I found it — challenge owner</h3>
+              <h3 className="font-semibold text-sm" style={{ color: "#3A3A3A" }}>I found it — challenge owner</h3>
               <button type="button" onClick={() => setIsOpen(false)} className="text-xs text-[#9A7070] hover:underline">Cancel</button>
             </div>
             {submitted ? (
               <p className="text-xs font-medium text-[#9A3F3F] py-2">Report submitted! The owner will be notified to answer.</p>
             ) : (
               <>
-                <p className="text-xs" style={{ color: "#6B3A3A" }}>Add questions only the real owner can answer:</p>
+                <p className="text-xs" style={{ color: "#6B7280" }}>Add questions only the real owner can answer:</p>
                 {qs.map((q, i) => (
                   <div key={q.id} className="flex items-center gap-2">
                     <input
@@ -1041,7 +1045,7 @@ function OwnershipActionSection({
                       placeholder={`Question ${i + 1} (e.g. What color is the keychain?)`}
                       value={q.prompt}
                       onChange={ev => setQs(list => list.map(x => x.id === q.id ? { ...x, prompt: ev.target.value } : x))}
-                      className={inputCls + " text-xs"}
+                      className={formInputCls + " text-xs"}
                       required
                     />
                     <button
@@ -1057,7 +1061,7 @@ function OwnershipActionSection({
                   type="button"
                   onClick={() => setQs(list => [...list, { id: `q${Date.now()}${list.length}`, prompt: "" }])}
                   className="text-xs font-semibold self-start hover:underline"
-                  style={{ color: "#9A3F3F" }}
+                  style={{ color: "#3A3A3A" }}
                 >
                   + Add question
                 </button>
@@ -1066,9 +1070,9 @@ function OwnershipActionSection({
                   placeholder="Note to owner (e.g. I turned it in to Room 101)..."
                   value={note}
                   onChange={ev => setNote(ev.target.value)}
-                  className={inputCls + " text-xs resize-none"}
+                  className={formInputCls + " text-xs resize-none"}
                 />
-                <button type="submit" className={btnPrimary + " self-start text-xs py-2"}>
+                <button type="submit" className={btnDark + " self-start text-xs py-2"}>
                   Send report to owner
                 </button>
               </>
@@ -1085,12 +1089,12 @@ function OwnershipActionSection({
       return (
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between mb-1">
-            <h3 className="font-semibold text-sm" style={{ color: "#2C1414" }}>Your ownership claim</h3>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
+            <h3 className="font-semibold text-sm" style={{ color: "#3A3A3A" }}>Your ownership claim</h3>
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#ECECEE", color: "#6B7280" }}>
               {myResponse.status}
             </span>
           </div>
-          <p className="text-xs" style={{ color: "#6B3A3A" }}>
+          <p className="text-xs" style={{ color: "#6B7280" }}>
             {myResponse.status === "approved" ? "The finder approved your claim! Pick up at the admin office."
               : myResponse.status === "rejected" ? "The finder didn't approve this claim."
               : myResponse.status === "escalated" ? "The finder sent your claim to the admin office for review."
@@ -1128,28 +1132,28 @@ function OwnershipActionSection({
             className="flex flex-col gap-4"
           >
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>I lost it — prove ownership</p>
-              <button type="button" onClick={() => setIsOpen(false)} className="text-xs hover:underline" style={{ color: "#9A7070" }}>Cancel</button>
+              <p className="text-sm font-semibold" style={{ color: "#3A3A3A" }}>I lost it — prove ownership</p>
+              <button type="button" onClick={() => setIsOpen(false)} className="text-xs hover:underline" style={{ color: "#6B7280" }}>Cancel</button>
             </div>
             {submitted ? (
-              <p className="text-sm font-medium" style={{ color: "#9A3F3F" }}>Claim submitted! The finder will review your answers.</p>
+              <p className="text-sm font-medium" style={{ color: "#3A3A3A" }}>Claim submitted! The finder will review your answers.</p>
             ) : (
               <>
                 {questions.map((q, i) => (
                   <div key={q.id}>
-                    <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {q.prompt} <span style={{ color: "#9A3F3F" }}>*</span></label>
+                    <label className="block text-sm font-medium mb-1.5" style={{ color: "#3A3A3A" }}>{i + 1}. {q.prompt} <span style={{ color: "#3A3A3A" }}>*</span></label>
                     <input
                       type="text"
                       required
                       placeholder="Your answer"
                       value={challengeAnswers[q.id] ?? ""}
                       onChange={ev => setChallengeAnswers(prev => ({ ...prev, [q.id]: ev.target.value }))}
-                      className={inputCls}
+                      className={formInputCls}
                     />
                   </div>
                 ))}
                 <div>
-                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#3A3A3A" }}>
                     {hasQuestions ? "Note to finder (optional)" : "Describe identifying details *"}
                   </label>
                   <textarea
@@ -1158,10 +1162,10 @@ function OwnershipActionSection({
                     placeholder="Describe unique scratches, serials, contents, or where you lost it..."
                     value={claimantNote}
                     onChange={ev => setClaimantNote(ev.target.value)}
-                    className={inputCls + " resize-none"}
+                    className={formInputCls + " resize-none"}
                   />
                 </div>
-                <button type="submit" className={btnPrimary + " self-start"}>
+                <button type="submit" className={btnDark + " self-start"}>
                   Submit claim
                 </button>
               </>
@@ -1180,35 +1184,35 @@ function OwnershipActionSection({
     if (open) {
       return (
         <div className="flex flex-col gap-3">
-          <button type="button" onClick={() => setOpenReportId(null)} className="inline-flex items-center gap-1.5 self-start text-xs font-medium hover:opacity-70" style={{ color: "#6B3A3A" }}>
+          <button type="button" onClick={() => setOpenReportId(null)} className="inline-flex items-center gap-1.5 self-start text-xs font-medium hover:opacity-70" style={{ color: "#6B7280" }}>
             <IconArrowLeft /> All claims
           </button>
-          <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+          <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ background: FORM_CARD_BG }}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <button type="button" onClick={() => openAuthor(open.responder_id, open.responder_name)} aria-label={`Open ${open.responder_name}'s profile`} className="shrink-0 hover:opacity-80">
                   <Avatar id={open.responder_id} name={open.responder_name} size={32} />
                 </button>
-                <p className="text-sm font-semibold min-w-0" style={{ color: "#2C1414" }}>
+                <p className="text-sm font-semibold min-w-0" style={{ color: "#3A3A3A" }}>
                   <button type="button" onClick={() => openAuthor(open.responder_id, open.responder_name)} className="hover:underline">
                     {open.responder_name}
                   </button>
                   's claim
                 </p>
               </div>
-              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0" style={{ background: "#ECECEE", color: "#6B7280" }}>
                 {statusLabel(open.status)}
               </span>
             </div>
             <SubmittedAnswers answers={open.answers} emptyAnswerText="(no answer)" note={open.note} noteLabel="Their note" />
             {open.status === "pending" ? (
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => onApprove?.(open.id)} className={btnPrimary}>Approve</button>
-                <button type="button" onClick={() => onReject?.(open.id)} className={btnSecondary}>Reject</button>
-                <button type="button" onClick={() => onEscalate?.(open.id)} className={btnSecondary}>Send to staff</button>
+                <button type="button" onClick={() => onApprove?.(open.id)} className={btnDark}>Approve</button>
+                <button type="button" onClick={() => onReject?.(open.id)} className={btnGrey}>Reject</button>
+                <button type="button" onClick={() => onEscalate?.(open.id)} className={btnGrey}>Send to staff</button>
               </div>
             ) : (
-              <p className="text-xs" style={{ color: "#6B3A3A" }}>
+              <p className="text-xs" style={{ color: "#6B7280" }}>
                 {open.status === "approved" ? "You approved this claim. Pickup happens at the admin office."
                   : open.status === "rejected" ? "You rejected this claim."
                   : "You sent this claim to the admin office for review."}
@@ -1220,7 +1224,7 @@ function OwnershipActionSection({
     }
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Claims ({claims.length})</p>
+        <p className="text-sm font-semibold" style={{ color: "#3A3A3A" }}>Claims ({claims.length})</p>
         {claims.map(r => {
           const waiting = r.status === "pending";
           const n = r.answers.length;
@@ -1229,21 +1233,18 @@ function OwnershipActionSection({
               key={r.id}
               type="button"
               onClick={() => setOpenReportId(r.id)}
-              className="w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 transition-colors hover:bg-[#FBF7F4]"
-              style={{ border: `1px solid ${waiting ? "#9A3F3F" : "#E6CFA9"}` }}
+              className="w-full text-left px-3 py-2.5 rounded-xl flex items-center gap-3 transition-colors hover:bg-[#F2F2F2]"
+              
             >
               <Avatar id={r.responder_id} name={r.responder_name} size={32} />
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold truncate" style={{ color: "#2C1414" }}>{r.responder_name}</span>
-                <span className="block text-xs" style={{ color: "#6B3A3A" }}>
-                  {n === 0 ? "Note only" : `${n} ${n === 1 ? "answer" : "answers"}`} · {postedLabel(r.created_at)}
+                <span className="block text-sm font-semibold truncate" style={{ color: "#3A3A3A" }}>{r.responder_name}</span>
+                <span className="block text-xs" style={{ color: "#6B7280" }}>
+                  {n === 0 ? "Note only" : `${n} ${n === 1 ? "answer" : "answers"}`}
                 </span>
               </span>
-              <span
-                className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0"
-                style={waiting ? { background: "#9A3F3F", color: "#FFFFFF" } : { background: "#F5ECEC", color: "#9A3F3F" }}
-              >
-                {waiting ? "Review" : statusLabel(r.status)}
+              <span className="text-xs shrink-0" style={{ color: "#6B7280" }}>
+                {postedLabel(r.created_at)}
               </span>
             </button>
           );
@@ -1358,18 +1359,18 @@ function PostDetail({
   return (
     <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "#FFFFFF" }}>
       {/* Top bar */}
-      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FFFFFF", borderBottom: "1px solid #C1856D" }}>
-        <button onClick={onBack} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
+      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FFFFFF", borderBottom: "1px solid #E5E5E5" }}>
+        <button onClick={onBack} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B7280" }}>
           <IconArrowLeft /> Back
         </button>
-        <span className="font-semibold text-sm truncate" style={{ color: "#2C1414" }}>Post</span>
+        <span className="font-semibold text-sm truncate" style={{ color: "#3A3A3A" }}>Post</span>
       </header>
 
       {/* Scrollable: full post, action row, ownership action section, then comment thread */}
       <div className="flex-1 overflow-y-auto scroll-area">
         <div className="max-w-2xl mx-auto px-4 py-4">
           {/* The post */}
-          <div className="pb-4 mb-4" style={{ borderBottom: "1px solid #C1856D" }}>
+          <div className="pb-4 mb-4" style={{ borderBottom: "1px solid #E5E5E5" }}>
             <div className="flex items-center gap-2">
               <div
                 className="flex items-center gap-2 cursor-pointer hover:opacity-80"
@@ -1378,7 +1379,7 @@ function PostDetail({
                 <Avatar id={item.finder_id} name={item.finder_name} size={32} />
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-sm font-semibold hover:underline" style={{ color: "#2C1414" }}>
+                    <span className="text-sm font-semibold hover:underline" style={{ color: "#3A3A3A" }}>
                       {item.finder_name || userName(item.finder_id)}
                     </span>
                     {useIsVerified(item.finder_id) && <VerificationBadge size={13} />}
@@ -1390,23 +1391,23 @@ function PostDetail({
                     </span>
                     {item.pending_sync && <SyncChip />}
                   </div>
-                  <span className="text-xs" style={{ color: "#9A7070" }}>{postedLabel(item.created_at)}</span>
+                  <span className="text-xs" style={{ color: "#6B7280" }}>{postedLabel(item.created_at)}</span>
                 </div>
               </div>
             </div>
 
-            <h1 className="mt-3 font-semibold text-xl leading-snug" style={{ color: "#2C1414" }}>{item.title}</h1>
-            {item.description && <p className="mt-2 text-sm leading-relaxed whitespace-pre-line" style={{ color: "#2C1414" }}>{item.description}</p>}
+            <h1 className="mt-3 font-semibold text-xl leading-snug" style={{ color: "#3A3A3A" }}>{item.title}</h1>
+            {item.description && <p className="mt-2 text-sm leading-relaxed whitespace-pre-line" style={{ color: "#3A3A3A" }}>{item.description}</p>}
             {item.image_url && (
               <img src={item.image_url} alt={item.title} className="mt-3 w-full max-h-[28rem] object-cover rounded-xl" />
             )}
             <div className="mt-3 flex flex-wrap gap-3">
-              {item.location_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconMapPin />{item.location_found}</span>}
-              {item.time_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconClock />{formatDate(item.time_found)}</span>}
+              {item.location_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B7280" }}><IconMapPin />{item.location_found}</span>}
+              {item.time_found && <span className="flex items-center gap-1 text-xs" style={{ color: "#6B7280" }}><IconClock />{formatDate(item.time_found)}</span>}
             </div>
 
             {/* Post actions (Upvote, Comment count, Repost, Share) + claim button rightmost */}
-            <div className="mt-4 pt-3" style={{ borderTop: "1px dashed #C1856D" }}>
+            <div className="mt-4">
               <PostActions
                 postId={item.id}
                 baseUpvotes={item.upvotes}
@@ -1457,7 +1458,7 @@ function PostDetail({
               onClick={() => setPanel("comments")}
               aria-pressed={showComments}
               className="text-sm font-semibold hover:opacity-70 transition-opacity"
-              style={{ color: showComments ? "#2C1414" : "#6B3A3A" }}
+              style={{ color: showComments ? "#3A3A3A" : "#6B7280" }}
             >
               {count} {count === 1 ? "comment" : "comments"}
             </button>
@@ -1467,14 +1468,14 @@ function PostDetail({
                 onClick={() => setPanel(p => p === "action" ? "comments" : "action")}
                 aria-pressed={!showComments}
                 className="inline-flex items-center justify-center w-9 h-9 -mr-2 rounded-md hover:opacity-70 transition-opacity"
-                style={{ color: showComments ? "#6B3A3A" : "#9A3F3F" }}
+                style={{ color: showComments ? "#6B7280" : "#3A3A3A" }}
                 aria-label={needsAction ? `${actionLabel} (needs your response)` : actionLabel}
                 title={actionLabel}
               >
                 <span className="relative inline-flex">
                   <IconDocument />
                   {needsAction && (
-                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: "#9A3F3F", boxShadow: "0 0 0 2px #FFFFFF" }} aria-hidden="true" />
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: "#3A3A3A", boxShadow: "0 0 0 2px #FFFFFF" }} aria-hidden="true" />
                   )}
                 </span>
               </button>
@@ -1483,7 +1484,7 @@ function PostDetail({
 
           {/* Plain ownership form (no card) shown when doc icon is clicked */}
           {showForm && !claimSubmitted && item.kind !== "lost" && claimBlockedUntil && (
-            <p className="text-sm mb-4 pb-4" style={{ color: "#9A3F3F", borderBottom: "1px solid #C1856D" }}>
+            <p className="text-sm mb-4 pb-4" style={{ color: "#3A3A3A", borderBottom: "1px solid #E5E5E5" }}>
               You've made 3 claims in the last 24 hours. You can claim again after {new Date(claimBlockedUntil).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.
             </p>
           )}
@@ -1504,40 +1505,40 @@ function PostDetail({
                 setClaimSubmitted(true);
               }}
               className={item.kind === "lost" ? "flex flex-col gap-4 mb-4 rounded-xl p-4 sm:p-5" : "flex flex-col gap-4 mb-4 pb-4"}
-              style={item.kind === "lost" ? { border: "1px solid #E6CFA9", background: "#FFFFFF" } : { borderBottom: "1px solid #C1856D" }}
+              style={item.kind === "lost" ? { background: FORM_CARD_BG } : { borderBottom: "1px solid #E5E5E5" }}
             >
               {item.kind !== "lost" && (item.challenge ?? []).map((q, i) => (
                 <div key={q.id}>
-                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {q.prompt} <span style={{ color: "#9A3F3F" }}>*</span></label>
-                  <input type="text" required className={inputCls} value={claimAnswers[q.id] ?? ""} onChange={ev => setClaimAnswers(v => ({ ...v, [q.id]: ev.target.value }))} />
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#3A3A3A" }}>{i + 1}. {q.prompt} <span style={{ color: "#3A3A3A" }}>*</span></label>
+                  <input type="text" required className={formInputCls} value={claimAnswers[q.id] ?? ""} onChange={ev => setClaimAnswers(v => ({ ...v, [q.id]: ev.target.value }))} />
                 </div>
               ))}
               {item.kind === "lost" && (
                 <div className="flex flex-col gap-4">
-                  <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Verification form</p>
+                  <p className="text-sm font-semibold" style={{ color: "#3A3A3A" }}>Verification form</p>
                   <QuestionBuilder questions={reportQuestions} onChange={setReportQuestions} />
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: "#3A3A3A" }}>
                   {item.kind === "lost" ? "Note to the owner (optional)" : "Note to finder (optional)"}
                 </label>
-                <textarea rows={3} className={inputCls + " resize-none"} value={claimNote} onChange={ev => setClaimNote(ev.target.value)} placeholder={item.kind === "lost" ? "Where you found it, where it is now…" : "Any additional details…"} />
+                <textarea rows={3} className={formInputCls + " resize-none"} value={claimNote} onChange={ev => setClaimNote(ev.target.value)} placeholder={item.kind === "lost" ? "Where you found it, where it is now…" : "Any additional details…"} />
               </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
                   disabled={item.kind === "lost" && finalQuestions.length === 0}
-                  className={btnPrimary + " disabled:opacity-40 disabled:cursor-not-allowed"}
+                  className={btnDark + " disabled:opacity-40 disabled:cursor-not-allowed"}
                 >
                   {item.kind === "lost" ? "Send to owner" : "Submit claim"}
                 </button>
-                <button type="button" onClick={() => item.kind === "lost" ? cancelBuilder() : setPanel("comments")} className={btnSecondary}>Cancel</button>
+                <button type="button" onClick={() => item.kind === "lost" ? cancelBuilder() : setPanel("comments")} className={btnGrey}>Cancel</button>
               </div>
             </form>
           )}
           {showForm && claimSubmitted && !myResponse && (
-            <p className="text-sm font-medium mb-4 pb-4" style={{ color: "#9A3F3F", borderBottom: "1px solid #C1856D" }}>
+            <p className="text-sm font-medium mb-4 pb-4" style={{ color: "#3A3A3A", borderBottom: "1px solid #E5E5E5" }}>
               {item.kind === "lost" ? "Sent to the owner — you'll be notified when they respond." : "Claim submitted!"}
             </p>
           )}
@@ -1558,7 +1559,7 @@ function PostDetail({
           )}
 
           {showComments && (visibleComments.length === 0 ? (
-            <p className="text-sm py-6 text-center" style={{ color: "#9A7070" }}>No comments yet. Be the first to comment.</p>
+            <p className="text-sm py-6 text-center" style={{ color: "#6B7280" }}>No comments yet</p>
           ) : (
             <div className="flex flex-col gap-3">
               {visibleComments.map(c => (
@@ -1570,7 +1571,7 @@ function PostDetail({
       </div>
 
       {/* Sticky composer with a Public/Private toggle */}
-      <form onSubmit={submitComment} className="flex flex-col gap-2 p-4 shrink-0" style={{ borderTop: "1px solid #C1856D", background: "#FFFFFF" }}>
+      <form onSubmit={submitComment} className="flex flex-col gap-2 p-4 shrink-0" style={{ borderTop: "1px solid #E5E5E5", background: "#FFFFFF" }}>
         <div className="max-w-2xl mx-auto w-full flex flex-col gap-2">
           <div className="flex gap-1">
             {(["public", "private"] as const).map(v => (
@@ -1580,8 +1581,8 @@ function PostDetail({
                 onClick={() => setVisibility(v)}
                 className="px-3 py-1 text-xs font-semibold rounded-full transition-colors"
                 style={visibility === v
-                  ? { background: "#9A3F3F", color: "#FFFFFF" }
-                  : { background: "#F5ECEC", color: "#6B3A3A" }}
+                  ? { background: "#3A3A3A", color: "#FFFFFF" }
+                  : { background: "#F2F2F2", color: "#6B7280" }}
               >
                 {v === "public" ? "Public" : "Private to author"}
               </button>
@@ -1594,9 +1595,9 @@ function PostDetail({
               onChange={e => setCommentDraft(e.target.value)}
               placeholder={visibility === "private" ? "Private note to the author…" : "Write a comment…"}
               className="flex-1 px-4 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
-              style={{ background: "#FFFFFF", borderColor: "#C1856D", color: "#2C1414" }}
+              style={{ background: "#FFFFFF", borderColor: "#E5E5E5", color: "#3A3A3A" }}
             />
-            <button type="submit" disabled={!commentDraft.trim()} className="px-4 py-2 text-sm font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FFFFFF" }}>
+            <button type="submit" disabled={!commentDraft.trim()} className="px-4 py-2 text-sm font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#3A3A3A", color: "#FFFFFF" }}>
               Post
             </button>
           </div>
@@ -1632,22 +1633,22 @@ function CommentThread({ node, depth, onAddReply }: {
         <Avatar id={node.author_id} name={node.author_name} size={avatarSize} />
       </button>
       <div className="min-w-0 flex-1">
-        <div className="rounded-2xl px-3 py-2 inline-block max-w-full" style={{ background: "#E6CFA9" }}>
+        <div className="rounded-2xl px-3 py-2 inline-block max-w-full" style={{ background: "#F0F2F5" }}>
           <div className="flex items-center gap-1.5">
-            <button type="button" onClick={() => openAuthor(node.author_id, node.author_name)} className="text-xs font-semibold hover:underline" style={{ color: "#2C1414" }}>{node.author_name}</button>
+            <button type="button" onClick={() => openAuthor(node.author_id, node.author_name)} className="text-xs font-semibold hover:underline" style={{ color: "#3A3A3A" }}>{node.author_name}</button>
             {useIsVerified(node.author_id) && <VerificationBadge size={12} />}
             {node.visibility === "private" && (
-              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>Private</span>
+              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style={{ background: "#E4E6EB", color: "#6B7280" }}>Private</span>
             )}
-            <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(node.created_at)}</span>
+            <span className="text-xs" style={{ color: "#6B7280" }}>· {postedLabel(node.created_at)}</span>
           </div>
-          <p className="text-sm leading-snug mt-0.5 break-words" style={{ color: "#2C1414" }}>{node.message}</p>
+          <p className="text-sm leading-snug mt-0.5 break-words" style={{ color: "#3A3A3A" }}>{node.message}</p>
         </div>
         <button
           type="button"
           onClick={() => { setReplying(r => !r); setDraft(""); }}
           className="text-xs font-medium mt-1 ml-3 hover:underline"
-          style={{ color: "#9A3F3F" }}
+          style={{ color: "#6B7280" }}
         >
           Reply
         </button>
@@ -1661,16 +1662,16 @@ function CommentThread({ node, depth, onAddReply }: {
               placeholder={`Reply to ${node.author_name}…`}
               autoFocus
               className="flex-1 px-3 py-1.5 text-sm rounded-full border focus:outline-none focus:ring-2"
-              style={{ background: "#FFFFFF", borderColor: "#C1856D", color: "#2C1414" }}
+              style={{ background: "#FFFFFF", borderColor: "#E5E5E5", color: "#3A3A3A" }}
             />
-            <button type="submit" disabled={!draft.trim()} className="px-3 py-1.5 text-xs font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FFFFFF" }}>
+            <button type="submit" disabled={!draft.trim()} className="px-3 py-1.5 text-xs font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#3A3A3A", color: "#FFFFFF" }}>
               Reply
             </button>
           </form>
         )}
 
         {(node.replies?.length ?? 0) > 0 && (
-          <div className="flex flex-col gap-3 mt-3 pl-3" style={{ borderLeft: "2px solid #C1856D" }}>
+          <div className="flex flex-col gap-3 mt-3 pl-3" style={{ borderLeft: "2px solid #E5E5E5" }}>
             {node.replies.map(child => (
               <CommentThread key={child.id} node={child} depth={depth + 1} onAddReply={onAddReply} />
             ))}
@@ -1729,7 +1730,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
           {item.pending_sync && <SyncChip />}
         </div>
 
-        <h3 className="text-xl font-semibold leading-snug" style={{ color: "#111111" }}>{item.title}</h3>
+        <h3 className="text-xl font-semibold leading-snug" style={{ color: "#3A3A3A" }}>{item.title}</h3>
         {item.description && <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "#4B5563" }}>{item.description}</p>}
 
         <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -1762,7 +1763,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
         onShare={onShare}
         extra={
           // Lost post → "I found this" (not shown to the owner who posted it).
-          item.kind === "lost" && lostFlow.currentUserId && item.finder_id !== lostFlow.currentUserId ? (
+          item.kind === "lost" && lostFlow.currentUserId && item.status !== "released" ? (
             <div className="ml-auto flex items-center gap-2">
               <span
                 className="flex items-center gap-1 text-xs font-medium"
@@ -1775,16 +1776,16 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
               <button
                 onClick={() => lostFlow.onFoundThis(item)}
                 className="px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
-                style={{ background: "#111111", color: "#FFFFFF" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#333333")}
-                onMouseLeave={e => (e.currentTarget.style.background = "#111111")}
+                style={{ background: "#3A3A3A", color: "#FFFFFF" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#525252")}
+                onMouseLeave={e => (e.currentTarget.style.background = "#3A3A3A")}
               >
                 I found it
               </button>
             </div>
           ) :
           // "Prove it's yours" applies only to FOUND items.
-          item.kind !== "lost" && role !== "staff" && onClaim && item.status !== "released" && item.finder_id !== lostFlow.currentUserId ? (
+          item.kind !== "lost" && role !== "staff" && onClaim && item.status !== "released" ? (
             <div className="ml-auto flex items-center gap-2">
               <span
                 className="flex items-center gap-1 text-xs font-medium"
@@ -1797,9 +1798,9 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
               <button
                 onClick={() => onClaim(item)}
                 className="px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
-                style={{ background: "#111111", color: "#FFFFFF" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#333333")}
-                onMouseLeave={e => (e.currentTarget.style.background = "#111111")}
+                style={{ background: "#3A3A3A", color: "#FFFFFF" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#525252")}
+                onMouseLeave={e => (e.currentTarget.style.background = "#3A3A3A")}
               >
                 I lost it
               </button>
@@ -1826,18 +1827,18 @@ function QuotedItem({ item }: { item: Item }) {
       type="button"
       onClick={() => openDetail(item)}
       className="w-full text-left rounded-lg p-3 flex gap-3 transition-shadow hover:shadow-md"
-      style={{ background: "#FFFFFF", border: "1px solid #C1856D" }}
+      style={{ background: "#FFFFFF", border: "1px solid #E5E5E5" }}
     >
       <div className="flex flex-col gap-1 flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <Avatar id={item.finder_id} name={item.finder_name} size={18} />
-          <span className="text-xs font-semibold" style={{ color: "#2C1414" }}>{item.finder_name || userName(item.finder_id)}</span>
+          <span className="text-xs font-semibold" style={{ color: "#3A3A3A" }}>{item.finder_name || userName(item.finder_id)}</span>
           {useIsVerified(item.finder_id) && <VerificationBadge size={12} />}
-          <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(item.created_at)}</span>
+          <span className="text-xs" style={{ color: "#6B7280" }}>· {postedLabel(item.created_at)}</span>
         </div>
-        <p className="text-sm font-semibold leading-snug" style={{ color: "#2C1414" }}>{item.title}</p>
-        <p className="text-xs leading-snug line-clamp-2" style={{ color: "#6B3A3A" }}>{item.description}</p>
-        <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconMapPin />{item.location_found}</span>
+        <p className="text-sm font-semibold leading-snug" style={{ color: "#3A3A3A" }}>{item.title}</p>
+        <p className="text-xs leading-snug line-clamp-2" style={{ color: "#6B7280" }}>{item.description}</p>
+        <span className="flex items-center gap-1 text-xs" style={{ color: "#6B7280" }}><IconMapPin />{item.location_found}</span>
       </div>
       {item.image_url && (
         <div className="shrink-0 w-16 h-16 rounded-lg overflow-hidden" style={{ background: "#D4B890" }}>
@@ -1867,17 +1868,17 @@ function RepostCard({ repost, item, onRemove, actions }: {
   return (
     <div className="py-4 flex flex-col gap-2" style={{ borderBottom: "1px solid #E5E5E5" }}>
       <div className="flex items-center gap-1.5">
-        <span style={{ color: "#9A3F3F" }}><IconRepost size={14} /></span>
+        <span style={{ color: "#6B7280" }}><IconRepost size={14} /></span>
         <AuthorLink id={repost.user_id} name={repost.user_name} size={20} textClass="text-xs font-semibold" />
-        <span className="text-xs whitespace-nowrap" style={{ color: "#9A7070" }}>reposted · {postedLabel(repost.created_at)}</span>
+        <span className="text-xs whitespace-nowrap" style={{ color: "#6B7280" }}>reposted · {postedLabel(repost.created_at)}</span>
         {onRemove && (
-          <button onClick={onRemove} className="ml-auto text-xs font-medium hover:underline" style={{ color: "#9A3F3F" }}>
+          <button onClick={onRemove} className="ml-auto text-xs font-medium hover:underline" style={{ color: "#6B7280" }}>
             Remove
           </button>
         )}
       </div>
       {repost.caption && (
-        <p className="text-sm leading-relaxed" style={{ color: "#2C1414" }}>{repost.caption}</p>
+        <p className="text-sm leading-relaxed" style={{ color: "#3A3A3A" }}>{repost.caption}</p>
       )}
       <QuotedItem item={item} />
       {actions && (
@@ -1915,7 +1916,7 @@ function RepostDialog({ item, alreadyReposted, onClose, onRepost, onRemove }: {
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative rounded-2xl shadow-xl w-full max-w-md flex flex-col" style={{ background: "#FFFFFF" }}>
         <div className="flex items-center justify-between p-5" style={{ borderBottom: "1px solid #C1856D" }}>
-          <h2 className="text-base font-semibold" style={{ color: "#2C1414" }}>{alreadyReposted ? "Edit your repost" : "Repost to your timeline"}</h2>
+          <h2 className="text-base font-semibold" style={{ color: "#3A3A3A" }}>{alreadyReposted ? "Edit your repost" : "Repost to your timeline"}</h2>
           <button onClick={onClose} style={{ color: "#9A7070" }}><IconX /></button>
         </div>
         <div className="p-5 flex flex-col gap-4">
@@ -1985,10 +1986,10 @@ function ChallengeModal({ item, onClose, onSubmit }: {
     <div className="fixed inset-0 z-50 overflow-y-auto scroll-area" style={{ background: "#FFFFFF" }}>
       {/* Page header */}
       <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14" style={{ background: "#FFFFFF", borderBottom: "1px solid #C1856D" }}>
-        <button onClick={onClose} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
+        <button onClick={onClose} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B7280" }}>
           <IconArrowLeft /> Back
         </button>
-        <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>I lost it</span>
+        <span className="font-semibold text-sm" style={{ color: "#3A3A3A" }}>I lost it</span>
       </header>
 
       <div className="max-w-lg mx-auto px-4 py-6">
@@ -1997,7 +1998,7 @@ function ChallengeModal({ item, onClose, onSubmit }: {
             <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "#F2EBE5" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9A3F3F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <h2 className="text-xl font-semibold" style={{ color: "#2C1414" }}>Answers submitted</h2>
+            <h2 className="text-xl font-semibold" style={{ color: "#3A3A3A" }}>Answers submitted</h2>
             <p className="mt-2 text-sm leading-relaxed" style={{ color: "#6B3A3A" }}>
               The finder will review your answers and follow up. Pickup is handled in person at the admin office.
             </p>
@@ -2014,7 +2015,7 @@ function ChallengeModal({ item, onClose, onSubmit }: {
             >
               {item.image_url && <img src={item.image_url} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />}
               <div className="min-w-0">
-                <p className="font-semibold text-sm" style={{ color: "#2C1414" }}>{item.title}</p>
+                <p className="font-semibold text-sm" style={{ color: "#3A3A3A" }}>{item.title}</p>
                 <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>{hasQuestions ? "Answer the finder's questions to prove this item is yours." : "Send the finder a note explaining why this item is yours."}</p>
               </div>
             </button>
@@ -2022,7 +2023,7 @@ function ChallengeModal({ item, onClose, onSubmit }: {
             <form onSubmit={handleSubmit} className="flex flex-col gap-5">
               {questions.map((q, i) => (
                 <div key={q.id}>
-                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#3A3A3A" }}>
                     {i + 1}. {q.prompt} <span style={{ color: "#9A3F3F" }}>*</span>
                   </label>
                   <input
@@ -2036,7 +2037,7 @@ function ChallengeModal({ item, onClose, onSubmit }: {
               ))}
 
               <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: "#3A3A3A" }}>
                   Note to the finder {hasQuestions ? "(optional)" : <span style={{ color: "#9A3F3F" }}>*</span>}
                 </label>
                 <textarea
@@ -2183,7 +2184,6 @@ function PhotoTile({ item }: { item: Item }) {
     <button
       onClick={() => openDetail(item)}
       className="relative w-full text-left overflow-hidden rounded-xl mb-2 block break-inside-avoid"
-      style={{ border: "1px solid #C1856D" }}
     >
       <img src={item.image_url} alt={item.title} loading="lazy" className="w-full h-auto object-cover block" />
       {/* Minimal overlay — Found/Lost tag + title */}
@@ -2265,7 +2265,7 @@ function LocationCombobox({ value, onChange, placeholder }: {
           else if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
         }}
         className="w-full min-w-0 p-0 border-0 bg-transparent outline-none text-sm placeholder:text-[#B8A0A0]"
-        style={{ color: "#2C1414" }}
+        style={{ color: "#3A3A3A" }}
       />
       {open && options.length > 0 && (
         <ul
@@ -2284,7 +2284,7 @@ function LocationCombobox({ value, onChange, placeholder }: {
               onMouseDown={e => { e.preventDefault(); pick(place); }}
               onMouseEnter={() => setActive(i)}
               className="px-3 py-2 text-sm cursor-pointer flex items-center gap-2"
-              style={{ background: i === active ? "#F5ECEC" : "transparent", color: "#2C1414" }}
+              style={{ background: i === active ? "#F5ECEC" : "transparent", color: "#3A3A3A" }}
             >
               <span style={{ color: "#9A7070" }}><IconMapPin /></span>
               {place}
@@ -2358,7 +2358,7 @@ function CaptionEditor({ value, onChange, placeholder }: {
           }
         }}
         className="w-full p-0 border-0 bg-transparent outline-none resize-none overflow-hidden text-base font-semibold leading-snug placeholder:font-normal placeholder:text-[#B8A0A0]"
-        style={{ color: "#2C1414" }}
+        style={{ color: "#3A3A3A" }}
       />
       {(body || bodyShown) && (
         <textarea
@@ -2515,7 +2515,7 @@ function FinderForm({ onSubmit, user }: {
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </div>
-        <h2 className="text-xl font-semibold" style={{ color: "#2C1414" }}>{isLost ? "Lost item posted" : "Item logged"}</h2>
+        <h2 className="text-xl font-semibold" style={{ color: "#3A3A3A" }}>{isLost ? "Lost item posted" : "Item logged"}</h2>
         <p className="mt-2 text-sm leading-relaxed" style={{ color: "#6B3A3A" }}>
           {isLost
             ? "Your lost-item post is now in the catalog for everyone to see. If someone finds it, they can respond there."
@@ -2537,17 +2537,17 @@ function FinderForm({ onSubmit, user }: {
   return (
     <div className="max-w-lg mx-auto px-4 py-6">
       <div className="mb-4 flex items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold" style={{ color: "#2C1414" }}>Log a Found/Lost Item</h1>
+        <h1 className="text-2xl font-semibold" style={{ color: "#3A3A3A" }}>Log a Found/Lost Item</h1>
       </div>
 
       {/* AI caption import — pop-up in the verification-form card style */}
       {showCaptionImport && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="caption-import-title">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowCaptionImport(false)} />
-          <div className="relative w-full sm:max-w-md flex flex-col gap-4 rounded-t-2xl sm:rounded-xl p-4 sm:p-5 shadow-xl" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+          <div className="relative w-full sm:max-w-md flex flex-col gap-4 rounded-t-2xl sm:rounded-xl p-4 sm:p-5 shadow-xl" style={{ background: FORM_CARD_BG }}>
             <div className="flex items-center justify-between gap-2">
-              <p id="caption-import-title" className="text-sm font-semibold" style={{ color: "#2C1414" }}>Fill from a post caption</p>
-              <button type="button" onClick={() => setShowCaptionImport(false)} aria-label="Close" className="hover:opacity-70" style={{ color: "#9A7070" }}>
+              <p id="caption-import-title" className="text-sm font-semibold" style={{ color: "#3A3A3A" }}>Fill from a post caption</p>
+              <button type="button" onClick={() => setShowCaptionImport(false)} aria-label="Close" className="hover:opacity-70" style={{ color: "#6B7280" }}>
                 <IconX />
               </button>
             </div>
@@ -2558,20 +2558,20 @@ function FinderForm({ onSubmit, user }: {
               onKeyDown={e => { if (e.key === "Escape") { e.preventDefault(); setShowCaptionImport(false); } }}
               rows={5}
               placeholder="Paste caption here…"
-              className={inputCls + " resize-none"}
+              className={formInputCls + " resize-none"}
             />
-            {importMsg && <p className="text-xs" style={{ color: "#6B3A3A" }}>{importMsg}</p>}
+            {importMsg && <p className="text-xs" style={{ color: "#6B7280" }}>{importMsg}</p>}
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={handleFillFromCaption}
                 disabled={!caption.trim() || importing}
-                className={btnPrimary + " inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
+                className={btnDark + " inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
               >
                 <IconSparkles />
                 {importing ? "Generating…" : "Generate"}
               </button>
-              <button type="button" onClick={() => setShowCaptionImport(false)} className={btnSecondary}>Cancel</button>
+              <button type="button" onClick={() => setShowCaptionImport(false)} className={btnGrey}>Cancel</button>
             </div>
           </div>
         </div>
@@ -2583,7 +2583,7 @@ function FinderForm({ onSubmit, user }: {
           <div className="flex items-center gap-2 flex-wrap">
             <Avatar id={user.id} name={user.name} size={32} />
             <div className="min-w-0 leading-tight">
-              <p className="text-sm font-semibold truncate" style={{ color: "#2C1414" }}>{user.name}</p>
+              <p className="text-sm font-semibold truncate" style={{ color: "#3A3A3A" }}>{user.name}</p>
               <p className="text-xs" style={{ color: "#9A7070" }}>just now</p>
             </div>
             <div className="ml-auto flex items-center gap-2">
@@ -2645,7 +2645,7 @@ function FinderForm({ onSubmit, user }: {
                 onChange={e => setField("category", e.target.value)}
                 required
                 className="px-3 py-1 text-xs font-semibold rounded-full border bg-transparent outline-none cursor-pointer"
-                style={{ borderColor: "#C1856D", color: fields.category ? "#2C1414" : "#9A7070" }}
+                style={{ borderColor: "#C1856D", color: fields.category ? "#3A3A3A" : "#9A7070" }}
               >
                 <option value="">Category</option>
                 {CATEGORIES.slice(1).map(c => <option key={c}>{c}</option>)}
@@ -2695,14 +2695,14 @@ function FinderForm({ onSubmit, user }: {
 
         {/* Ownership challenge (optional, Found only) — same verification-form card as the post view */}
         {!isLost && (challengeOpen ? (
-          <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+          <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ background: FORM_CARD_BG }}>
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Verification form</p>
+              <p className="text-sm font-semibold" style={{ color: "#3A3A3A" }}>Verification form</p>
               <button
                 type="button"
                 onClick={() => { setChallengeOpen(false); setChallengeQs([]); }}
                 className="text-xs font-medium hover:opacity-70"
-                style={{ color: "#9A7070" }}
+                style={{ color: "#6B7280" }}
               >
                 Remove
               </button>
@@ -2714,7 +2714,7 @@ function FinderForm({ onSubmit, user }: {
         ))}
 
         <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Private note to staff</label>
+          <label className="block text-sm font-medium mb-1.5" style={{ color: "#3A3A3A" }}>Private note to staff</label>
           <textarea value={fields.note} onChange={e => setField("note", e.target.value)} rows={2} className={inputCls + " resize-none"} />
         </div>
 
@@ -2771,7 +2771,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
           <IconShield />
         </div>
         <div>
-          <h1 className="text-xl font-semibold" style={{ color: "#2C1414" }}>Staff Dashboard</h1>
+          <h1 className="text-xl font-semibold" style={{ color: "#3A3A3A" }}>Staff Dashboard</h1>
           <p className="text-xs" style={{ color: "#6B3A3A" }}>Admin Office · Main Hall Room 101</p>
         </div>
       </div>
@@ -2787,7 +2787,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
             onClick={() => { setTab(t.id); setActiveClaimId(null); }}
             className="px-4 py-2 text-sm font-medium rounded-md transition-colors relative"
             style={tab === t.id
-              ? { background: "#FFFFFF", color: "#2C1414" }
+              ? { background: "#FFFFFF", color: "#3A3A3A" }
               : { color: "#6B3A3A" }
             }
           >
@@ -2816,7 +2816,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#FFFFFF", color: "#9A3F3F" }}>{item.category}</span>
                         <StatusBadge status={item.status} />
                       </div>
-                      <p className="text-sm mb-2" style={{ color: "#2C1414" }}>{item.description}</p>
+                      <p className="text-sm mb-2" style={{ color: "#3A3A3A" }}>{item.description}</p>
                       {item.private_note && (
                         <div className="p-2.5 rounded-lg mb-2" style={{ background: "#FFFFFF", border: "1px solid #C1856D" }}>
                           <p className="text-xs" style={{ color: "#6B3A3A" }}><span className="font-semibold">Finder note:</span> {item.private_note}</p>
@@ -2865,7 +2865,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
                           <ClaimBadge status={claim.status} />
                           <span className="text-xs" style={{ color: "#6B3A3A" }}>from {claim.owner_name}</span>
                         </div>
-                        <p className="text-sm mt-1" style={{ color: "#2C1414" }}>{item?.category} · {item?.description?.slice(0, 60)}…</p>
+                        <p className="text-sm mt-1" style={{ color: "#3A3A3A" }}>{item?.category} · {item?.description?.slice(0, 60)}…</p>
                         <p className="text-xs mt-1" style={{ color: "#9A7070" }}>{claim.messages.length} message{claim.messages.length !== 1 ? "s" : ""} · {relativeDate(claim.created_at)}</p>
                       </div>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C1856D" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-1"><polyline points="9 18 15 12 9 6"/></svg>
@@ -2888,7 +2888,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
           <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #C1856D" }}>
             <div className="p-5 flex items-center justify-between gap-4" style={{ borderBottom: "1px solid #C1856D", background: "#E6CFA9" }}>
               <div>
-                <p className="font-medium text-sm" style={{ color: "#2C1414" }}>Claim by {activeClaim.owner_name}</p>
+                <p className="font-medium text-sm" style={{ color: "#3A3A3A" }}>Claim by {activeClaim.owner_name}</p>
                 <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>{allItems.find(i => i.id === activeClaim.item_id)?.description}</p>
               </div>
               <ClaimBadge status={activeClaim.status} />
@@ -2897,13 +2897,13 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
             <div className="p-5 flex flex-col gap-4 max-h-72 overflow-y-auto scroll-area" style={{ background: "#FFFFFF" }}>
               <div className="p-3 rounded-lg" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
                 <p className="text-xs font-medium mb-1" style={{ color: "#6B3A3A" }}>Owner's identifying details</p>
-                <p className="text-sm" style={{ color: "#2C1414" }}>{activeClaim.identifying_details}</p>
+                <p className="text-sm" style={{ color: "#3A3A3A" }}>{activeClaim.identifying_details}</p>
               </div>
               {activeClaim.messages.map(msg => (
                 <div key={msg.id} className={`flex flex-col ${msg.sender_role === "staff" ? "items-end" : "items-start"}`}>
                   <div className="max-w-xs px-4 py-3 rounded-2xl text-sm leading-relaxed"
                     style={msg.sender_role === "owner"
-                      ? { background: "#E6CFA9", color: "#2C1414", border: "1px solid #C1856D" }
+                      ? { background: "#E6CFA9", color: "#3A3A3A", border: "1px solid #C1856D" }
                       : { background: "#9A3F3F", color: "#FFFFFF" }
                     }>
                     {msg.sender_role === "owner" && <span className="text-xs font-medium block mb-1" style={{ color: "#6B3A3A" }}>{activeClaim.owner_name}</span>}
@@ -3001,7 +3001,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
           <button
             onClick={() => { setSearchFocused(true); setTimeout(() => searchInputRef.current?.focus(), 30); }}
             className="ml-auto inline-flex items-center justify-center w-8 h-8 rounded-lg [&_svg]:w-[18px] [&_svg]:h-[18px] transition-colors shrink-0"
-            style={{ color: "#2C1414" }}
+            style={{ color: "#3A3A3A" }}
             aria-label="Open search"
             title="Search"
           >
@@ -3022,7 +3022,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
                 onBlur={() => { if (!search.trim()) setSearchFocused(false); }}
                 placeholder="Search"
                 className="w-full pl-9 pr-16 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
-                style={{ background: "transparent", borderColor: "#C1856D", color: "#2C1414" }}
+                style={{ background: "transparent", borderColor: "#C1856D", color: "#3A3A3A" }}
               />
               {search && (
                 <button
@@ -3055,7 +3055,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
                         onMouseDown={e => e.preventDefault()}
                         onClick={() => { setCategoryFilter(c); setFilterOpen(false); if (view !== "catalog") setView("catalog"); }}
                         className="w-full text-left px-3 py-2 text-sm transition-colors"
-                        style={c === categoryFilter ? { background: "#E6CFA9", color: "#9A3F3F", fontWeight: 600 } : { color: "#2C1414" }}
+                        style={c === categoryFilter ? { background: "#E6CFA9", color: "#9A3F3F", fontWeight: 600 } : { color: "#3A3A3A" }}
                       >
                         {c}
                       </button>
@@ -3081,7 +3081,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
               <button
                 onClick={() => setView("log")}
                 className="hidden md:inline-flex items-center justify-center w-8 h-8 rounded-lg [&_svg]:w-[18px] [&_svg]:h-[18px] transition-opacity hover:opacity-70"
-                style={{ color: view === "log" ? "#9A3F3F" : "#2C1414" }}
+                style={{ color: view === "log" ? "#9A3F3F" : "#3A3A3A" }}
                 aria-label="Log a found item"
                 title="Log a found item"
               >
@@ -3091,7 +3091,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
             <button
               onClick={() => setView("gallery")}
               className="hidden md:inline-flex items-center justify-center w-8 h-8 rounded-lg [&_svg]:w-[18px] [&_svg]:h-[18px] transition-opacity hover:opacity-70"
-              style={{ color: view === "gallery" ? "#9A3F3F" : "#2C1414" }}
+              style={{ color: view === "gallery" ? "#9A3F3F" : "#3A3A3A" }}
               aria-label="Gallery"
               aria-current={view === "gallery" ? "page" : undefined}
               title="Gallery"
@@ -3101,7 +3101,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
             <button
               onClick={() => setView("notifications")}
               className="relative hidden md:inline-flex items-center justify-center w-8 h-8 rounded-lg [&_svg]:w-[18px] [&_svg]:h-[18px] transition-colors shrink-0"
-              style={{ color: view === "notifications" ? "#9A3F3F" : "#2C1414" }}
+              style={{ color: view === "notifications" ? "#9A3F3F" : "#3A3A3A" }}
               aria-label="Notifications"
               title="Notifications"
             >
@@ -3205,32 +3205,32 @@ function BottomNav({ view, canCreate, unreadCount, onFeed, onCommunity, onCreate
       type="button"
       onClick={t.onClick}
       aria-current={t.active ? "page" : undefined}
-      className="relative flex-1 flex flex-col items-center justify-center gap-1 h-full min-w-0"
-      style={{ color: t.active ? "#9A3F3F" : "#6B3A3A" }}
+      aria-label={t.key === "alerts" && unreadCount > 0 ? `${t.label}, ${unreadCount} unread` : t.label}
+      className="relative flex-1 flex flex-col items-center justify-center h-full min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3A3A3A]/25"
+      style={{ color: t.active ? "#3A3A3A" : "#6B7280" }}
     >
       <span className="relative">
         <t.Icon active={t.active} />
         {t.key === "alerts" && unreadCount > 0 && (
           <span
             className="absolute -top-1 -right-2 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold leading-4 text-center"
-            style={{ background: "#9A3F3F", color: "#FFFFFF", boxShadow: "0 0 0 2px #FFFFFF" }}
+            style={{ background: "#3A3A3A", color: "#FFFFFF", boxShadow: "0 0 0 2px #FFFFFF" }}
             aria-label={`${unreadCount} unread`}
           >
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </span>
-      <span className="text-[11px] font-medium leading-none truncate max-w-full">{t.label}</span>
     </button>
   );
 
   return (
     <nav
       className="md:hidden fixed inset-x-0 bottom-0 z-40"
-      style={{ background: "#FFFFFF", borderTop: "1px solid #E6CFA9", paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{ background: "#FFFFFF", borderTop: "1px solid #E5E5E5", paddingBottom: "env(safe-area-inset-bottom)" }}
       aria-label="Primary"
     >
-      <div className="flex items-stretch h-16 max-w-lg mx-auto px-1">
+      <div className="flex items-stretch h-14 max-w-lg mx-auto px-1">
         {tabs.slice(0, 2).map(renderTab)}
         {canCreate && (
           <div className="flex-1 flex justify-center">
@@ -3238,8 +3238,8 @@ function BottomNav({ view, canCreate, unreadCount, onFeed, onCommunity, onCreate
               type="button"
               onClick={onCreate}
               aria-label="Log a found or lost item"
-              className="self-center w-11 h-11 rounded-lg flex items-center justify-center transition-transform duration-100 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100"
-              style={{ background: view === "log" ? "#7A2E2E" : "#9A3F3F", color: "#FFFFFF" }}
+              className="self-center w-14 h-9 rounded-lg flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3A3A3A]/30 focus-visible:ring-offset-2 transition-transform duration-100 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100"
+              style={{ background: view === "log" ? "#525252" : "#3A3A3A", color: "#FFFFFF" }}
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
@@ -3274,7 +3274,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
     { n: "4", title: "Pick it up", body: "Once verified, staff approve release and you collect your item at the office." },
   ];
   return (
-    <div className="min-h-[100dvh]" style={{ background: "#FFFFFF", color: "#2C1414" }}>
+    <div className="min-h-[100dvh]" style={{ background: "#FFFFFF", color: "#3A3A3A" }}>
       {/* Nav — single line, slim */}
       <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(251,249,209,0.85)", borderBottom: "1px solid #E6CFA9" }}>
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
@@ -3338,7 +3338,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
                   <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
                 </svg>
               </div>
-              <h3 className="font-semibold" style={{ color: "#2C1414" }}>Black wireless earbuds</h3>
+              <h3 className="font-semibold" style={{ color: "#3A3A3A" }}>Black wireless earbuds</h3>
               <p className="text-sm mt-1" style={{ color: "#6B3A3A" }}>Found near the Library entrance</p>
               <div className="mt-4 pt-4 flex items-center justify-between" style={{ borderTop: "1px solid #E6CFA9" }}>
                 <span className="text-xs" style={{ color: "#9A7070" }}>Verified by staff</span>
@@ -3383,7 +3383,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
                 {i < steps.length - 1 && <span className="w-px flex-1 mt-2" style={{ background: "#E6CFA9" }} />}
               </div>
               <div className="pb-2">
-                <h3 className="text-lg font-semibold" style={{ color: "#2C1414" }}>{s.title}</h3>
+                <h3 className="text-lg font-semibold" style={{ color: "#3A3A3A" }}>{s.title}</h3>
                 <p className="mt-1 text-sm leading-relaxed max-w-[50ch]" style={{ color: "#6B3A3A" }}>{s.body}</p>
               </div>
             </li>
@@ -3496,7 +3496,7 @@ function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: 
             <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
           </span>
 
-          <h1 className="text-3xl font-bold tracking-tight" style={{ color: "#2C1414" }}>Welcome back</h1>
+          <h1 className="text-3xl font-bold tracking-tight" style={{ color: "#3A3A3A" }}>Welcome back</h1>
           <p className="mt-2 text-sm leading-relaxed" style={{ color: "#6B3A3A" }}>
             Sign in to log found items and claim what's yours.
           </p>
@@ -3505,7 +3505,7 @@ function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: 
             onClick={handleClick}
             disabled={busy}
             className="mt-8 w-full flex items-center justify-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
-            style={{ background: "#FFFFFF", color: "#2C1414", border: "1.5px solid #C1856D", boxShadow: "0 1px 2px rgba(154,63,63,0.08)" }}
+            style={{ background: "#FFFFFF", color: "#3A3A3A", border: "1.5px solid #C1856D", boxShadow: "0 1px 2px rgba(154,63,63,0.08)" }}
           >
             {busy ? (
               <>
@@ -3606,41 +3606,41 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
               {user.name.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase()}
             </span>
           )}
-          <button onClick={onSignOut} className={btnSecondary + " shrink-0"}>Sign out</button>
+          <button onClick={onSignOut} className={btnGrey + " shrink-0"}>Sign out</button>
         </div>
 
-        <h1 className="mt-4 text-2xl font-bold flex items-center gap-2" style={{ color: "#2C1414" }}>
+        <h1 className="mt-4 text-2xl font-bold flex items-center gap-2" style={{ color: "#3A3A3A" }}>
           {user.name}
           {isVerified && <VerificationBadge size={20} />}
         </h1>
-        <p className="mt-0.5 text-sm truncate" style={{ color: "#6B3A3A" }}>{user.email}</p>
+        <p className="mt-0.5 text-sm truncate" style={{ color: "#6B7280" }}>{user.email}</p>
 
         {/* Stats row */}
         <div className="mt-4 flex items-stretch">
           <div className="flex-1 px-4 py-3 text-center">
-            <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{postCount}</p>
-            <p className="text-xs" style={{ color: "#6B3A3A" }}>{postCount === 1 ? "Post" : "Posts"}</p>
+            <p className="text-lg font-bold" style={{ color: "#3A3A3A" }}>{postCount}</p>
+            <p className="text-xs" style={{ color: "#6B7280" }}>{postCount === 1 ? "Post" : "Posts"}</p>
           </div>
           <div className="flex-1 px-4 py-3 text-center">
-            <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{repostCount}</p>
-            <p className="text-xs" style={{ color: "#6B3A3A" }}>{repostCount === 1 ? "Repost" : "Reposts"}</p>
+            <p className="text-lg font-bold" style={{ color: "#3A3A3A" }}>{repostCount}</p>
+            <p className="text-xs" style={{ color: "#6B7280" }}>{repostCount === 1 ? "Repost" : "Reposts"}</p>
           </div>
           <div className="flex-1 px-4 py-3 text-center">
-            <p className="text-lg font-bold" style={{ color: isVerified ? "#9A3F3F" : "#9A7070" }}>{isVerified ? "Yes" : "No"}</p>
-            <p className="text-xs" style={{ color: "#6B3A3A" }}>Verified</p>
+            <p className="text-lg font-bold" style={{ color: isVerified ? "#3A3A3A" : "#6B7280" }}>{isVerified ? "Yes" : "No"}</p>
+            <p className="text-xs" style={{ color: "#6B7280" }}>Verified</p>
           </div>
         </div>
       </div>
 
       {/* Student verification (Requirement 15) — hidden once verified */}
       {status !== "verified" && (
-      <div className="rounded-xl p-5 mb-6" style={{ background: "#C1856D" }}>
+      <div className="rounded-xl p-5 mb-6" style={{ background: FORM_CARD_BG }}>
         <div className="flex items-center gap-2 mb-1">
-          <VerificationBadge size={16} />
-          <h2 className="text-sm font-semibold" style={{ color: "#2C1414" }}>Student verification</h2>
+          <VerificationBadge size={16} color="#3A3A3A" />
+          <h2 className="text-sm font-semibold" style={{ color: "#3A3A3A" }}>Student verification</h2>
         </div>
 
-        <p className="text-sm mb-3" style={{ color: "#2C1414" }}>
+        <p className="text-sm mb-3" style={{ color: "#3A3A3A" }}>
               {status === "rejected"
                 ? "That document wasn't confirmed. You can submit a clearer photo and try again."
                 : "Prove you're a student to get a verified badge."}
@@ -3650,7 +3650,7 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
                 aria-label="Document type"
                 value={docType}
                 onChange={e => setDocType(e.target.value as DocType)}
-                className={inputCls + " flex-1 min-w-0"}
+                className={formInputCls + " flex-1 min-w-0"}
               >
                 <option value="student_id">Student ID</option>
                 <option value="cor">Certificate of Registration (COR)</option>
@@ -3661,12 +3661,12 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
                 type="button"
                 onClick={() => verifyFileRef.current?.click()}
                 disabled={verifyBusy}
-                className={btnPrimary + " shrink-0 inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
+                className={btnDark + " shrink-0 inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
               >
                 {verifyBusy ? "Checking…" : "Get verified"}
               </button>
             </div>
-        {verifyMsg && <p className="text-xs mt-2" style={{ color: "#2C1414" }}>{verifyMsg}</p>}
+        {verifyMsg && <p className="text-xs mt-2" style={{ color: "#3A3A3A" }}>{verifyMsg}</p>}
       </div>
       )}
 
@@ -3733,33 +3733,33 @@ function PublicProfileView({ authorId, authorName, items, reposts, currentUserId
 
   return (
     <div className={`fixed inset-0 ${onTop ? "z-[60]" : "z-[45]"} flex flex-col`} style={{ background: "#FFFFFF" }}>
-      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FFFFFF", borderBottom: "1px solid #C1856D" }}>
-        <button onClick={onBack} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
+      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FFFFFF", borderBottom: "1px solid #E5E5E5" }}>
+        <button onClick={onBack} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B7280" }}>
           <IconArrowLeft /> Back
         </button>
-        <span className="font-semibold text-sm truncate" style={{ color: "#2C1414" }}>Profile</span>
+        <span className="font-semibold text-sm truncate" style={{ color: "#3A3A3A" }}>Profile</span>
       </header>
       <div className="flex-1 overflow-y-auto scroll-area">
         <div className="max-w-2xl mx-auto px-4 py-6">
           {/* Header — same layout as your own profile */}
           <div className="mb-6">
             <Avatar id={authorId} name={name} size={80} />
-            <h1 className="mt-4 text-2xl font-bold flex items-center gap-2" style={{ color: "#2C1414" }}>
+            <h1 className="mt-4 text-2xl font-bold flex items-center gap-2" style={{ color: "#3A3A3A" }}>
               {name}
               {verified && <VerificationBadge size={20} />}
             </h1>
             <div className="mt-4 flex items-stretch">
               <div className="flex-1 px-4 py-3 text-center">
-                <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{postCount}</p>
-                <p className="text-xs" style={{ color: "#6B3A3A" }}>{postCount === 1 ? "Post" : "Posts"}</p>
+                <p className="text-lg font-bold" style={{ color: "#3A3A3A" }}>{postCount}</p>
+                <p className="text-xs" style={{ color: "#6B7280" }}>{postCount === 1 ? "Post" : "Posts"}</p>
               </div>
               <div className="flex-1 px-4 py-3 text-center">
-                <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{repostCount}</p>
-                <p className="text-xs" style={{ color: "#6B3A3A" }}>{repostCount === 1 ? "Repost" : "Reposts"}</p>
+                <p className="text-lg font-bold" style={{ color: "#3A3A3A" }}>{repostCount}</p>
+                <p className="text-xs" style={{ color: "#6B7280" }}>{repostCount === 1 ? "Repost" : "Reposts"}</p>
               </div>
               <div className="flex-1 px-4 py-3 text-center">
-                <p className="text-lg font-bold" style={{ color: verified ? "#9A3F3F" : "#9A7070" }}>{verified ? "Yes" : "No"}</p>
-                <p className="text-xs" style={{ color: "#6B3A3A" }}>Verified</p>
+                <p className="text-lg font-bold" style={{ color: verified ? "#3A3A3A" : "#6B7280" }}>{verified ? "Yes" : "No"}</p>
+                <p className="text-xs" style={{ color: "#6B7280" }}>Verified</p>
               </div>
             </div>
           </div>
@@ -3787,11 +3787,11 @@ function NotificationsView({ notifications, onOpen }: {
 }) {
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
-      <h1 className="text-2xl font-semibold mb-4" style={{ color: "#2C1414" }}>Notifications</h1>
+      <h1 className="text-2xl font-semibold mb-4" style={{ color: "#3A3A3A" }}>Notifications</h1>
       {notifications.length === 0 ? (
-        <div className="text-center py-16 rounded-xl" style={{ border: "1px dashed #C1856D" }}>
-          <p className="text-sm font-medium" style={{ color: "#6B3A3A" }}>Nothing yet</p>
-          <p className="text-xs mt-1" style={{ color: "#9A7070" }}>Updates about your posts and found reports will show up here.</p>
+        <div className="text-center py-16 rounded-xl" style={{ border: "1px dashed #D1D5DB" }}>
+          <p className="text-sm font-medium" style={{ color: "#6B7280" }}>Nothing yet</p>
+          <p className="text-xs mt-1" style={{ color: "#6B7280" }}>Updates about your posts and found reports will show up here.</p>
         </div>
       ) : (
         <div className="flex flex-col">
@@ -3800,14 +3800,14 @@ function NotificationsView({ notifications, onOpen }: {
               key={n.id}
               onClick={() => onOpen(n)}
               className="text-left py-4 flex items-start gap-3 transition-colors"
-              style={{ borderBottom: "1px solid #C1856D" }}
+              style={{ borderBottom: "1px solid #E5E5E5" }}
             >
-              <span className="mt-0.5 shrink-0" style={{ color: n.read ? "#9A7070" : "#9A3F3F" }}><IconBell /></span>
+              <span className="mt-0.5 shrink-0" style={{ color: n.read ? "#6B7280" : "#3A3A3A" }}><IconBell /></span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm leading-snug" style={{ color: "#2C1414", fontWeight: n.read ? 400 : 600 }}>{n.message}</p>
-                <p className="text-xs mt-0.5" style={{ color: "#9A7070" }}>{postedLabel(n.created_at)}</p>
+                <p className="text-sm leading-snug" style={{ color: "#3A3A3A", fontWeight: n.read ? 400 : 600 }}>{n.message}</p>
+                <p className="text-xs mt-0.5" style={{ color: "#6B7280" }}>{postedLabel(n.created_at)}</p>
               </div>
-              {!n.read && <span className="mt-1.5 w-2 h-2 rounded-full shrink-0" style={{ background: "#9A3F3F" }} aria-label="Unread" />}
+              {!n.read && <span className="mt-1.5 w-2 h-2 rounded-full shrink-0" style={{ background: "#3A3A3A" }} aria-label="Unread" />}
             </button>
           ))}
         </div>
@@ -4364,7 +4364,7 @@ export default function App() {
           <button type="button" onClick={() => setSyncFailures([])} aria-label="Dismiss" style={{ color: "#9A3F3F" }}><IconX /></button>
         </div>
       )}
-      <main className="pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
+      <main className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
         {view === "catalog" && <CatalogView items={displayItems} role={role} user={user} search={search} categoryFilter={categoryFilter} onClearFilters={() => { setSearch(""); setCategoryFilter("All"); }} onClaim={handleClaimClick} onUpvote={handleUpvote} upvotedIds={myUpvotedIds} onRepost={setRepostingItem} repostCounts={repostCounts} myRepostItemIds={myRepostItemIds} reposts={reposts} onShare={handleShare} comments={comments} onAddComment={handleAddComment} onAddReply={handleAddReply} challengeResponseCounts={responseCounts} />}
         {view === "gallery" && <GalleryView items={displayItems} user={user} />}
         {view === "log" && <FinderForm onSubmit={handleFinderSubmit} user={user} />}
