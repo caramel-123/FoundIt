@@ -297,6 +297,30 @@ Reply (branching / nested):
     the comment thread, so the user can see and reference the full post details
     while answering or challenging.
 
+### Requirement 5d — Edit or delete your own post
+
+**User story:** As the author of a post, I want to fix mistakes or remove the
+post, so that the catalog stays accurate.
+
+#### Acceptance Criteria
+1. WHERE the current user is a post's author THE system SHALL show a pen icon
+   button at the top-right of the post in the full-screen post detail view
+   only (not on feed cards). Other users SHALL NOT see it.
+2. WHEN the author activates the pen icon THEN the system SHALL show a small menu with
+   **Edit** and **Delete**; it closes on selection, outside click, or Escape.
+3. WHEN the author chooses **Edit** THEN the system SHALL open the post
+   composer (Requirement 1.0a) titled "Edit post", prefilled with the post's
+   caption (title + description), category, location, photo, private note,
+   and verification-form questions, with a **Save** button. The Found/Lost
+   type is shown but cannot be changed while editing. Saving updates the post
+   in place (same id, author, status, and post time) for all users.
+4. WHEN the author chooses **Delete** THEN the system SHALL ask for
+   confirmation ("Delete this post? This can't be undone.") and, if
+   confirmed, remove the post for all users, close its detail view if open,
+   and drop reposts of it from the feed.
+5. THE database SHALL allow only the author (or staff) to update or delete an
+   item.
+
 ### Requirement 5b — My Profile (posts + reposts)
 
 **User story:** As a user, I want to open my profile by clicking my profile

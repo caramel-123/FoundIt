@@ -849,6 +849,21 @@ note, and a full-width Post button. Found and Lost share one field state
 found or lost item exactly as before. Needs the signed-in user, so `App`
 passes `user` to `FinderForm`.
 
+### Edit / delete own post (Requirement 5d) — migration `0008_items_delete.sql`
+
+`PostMenu` (pen-icon button + popover with Edit / Delete, closes on outside click
+and Escape) renders only in `PostDetail` when
+`item.finder_id === currentUserId`, via `PostOwnerContext` ({ onEdit,
+onDelete }) provided by `App`. Edit sets `editingItem` and switches to the
+`log` view; `FinderForm` takes an optional `editItem` and, when present,
+prefills its fields (`joinCaption(title, description)`, category, location,
+note, photo, challenge), locks the Found/Lost tag, titles itself "Edit post",
+and calls `onUpdate(id, patch)` instead of `onSubmit`. `App.handleUpdateItem`
+patches local state and calls `db.updateItem`. Delete asks `window.confirm`,
+removes the item locally, closes the detail view, and calls `db.deleteItem`.
+Migration 0008 adds an `items_delete` policy (author or staff); updates use
+the existing `items_update` (author) and `items_update_staff` policies.
+
 ### Campus location suggestions (Requirement 1.1b)
 
 `src/lib/campusPlaces.ts` exports `CAMPUS_PLACES` (the 50 legend entries of the

@@ -16,9 +16,9 @@ import {
   updateItemStatus,
   listClaims, createClaim, updateClaimStatus, insertClaimMessage, escalateChallengeResponse, subscribeClaims,
   listUpvotes, setUpvote, subscribeUpvotes,
-  upsertProfile, listProfiles,
+  upsertProfile, listProfiles, updateItem, deleteItem,
 } from "./lib/db";
-import type { DbUpvote, DbProfile } from "./lib/db";
+import type { DbUpvote, DbProfile, ItemPatch } from "./lib/db";
 import { reencodeImage } from "./lib/image";
 import { formatDate, relativeDate, postedLabel } from "./lib/time";
 import { countCommentNodes, nodeContains, addReply, visibleThreads } from "./lib/comments";
@@ -286,6 +286,53 @@ function useOpenAuthor(): (userId: string, name: string) => void {
 
 // Number of OTHER users' upvotes on a post (shared db). 0 when running locally.
 const UpvoteOthersContext = createContext<(postId: string) => number>(() => 0);
+
+// Author-only post actions (Requirement 5d).
+const PostOwnerContext = createContext<{ currentUserId: string | null; onEdit: (item: Item) => void; onDelete: (item: Item) => void }>({
+  currentUserId: null, onEdit: () => {}, onDelete: () => {},
+});
+
+
+// "⋯" button with Edit / Delete, shown only to the post's author.
+function PostMenu({ item }: { item: Item }) {
+  const { currentUserId, onEdit, onDelete } = useContext(PostOwnerContext);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => { document.removeEventListener("mousedown", onDown); window.removeEventListener("keydown", onKey, true); };
+  }, [open]);
+  if (!currentUserId || item.finder_id !== currentUserId) return null;
+  return (
+    <div ref={ref} className="relative ml-auto shrink-0 -my-1.5" onClick={e => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-label="Edit or delete post"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors hover:bg-[#F2F2F2] [&_svg]:w-[18px] [&_svg]:h-[18px]"
+        style={{ color: "#6B7280" }}
+      >
+        <IconPen />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full mt-1 z-30 w-36 rounded-lg py-1 shadow-lg" style={{ background: "#FFFFFF", border: "1px solid #E5E5E5" }}>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onEdit(item); }} className="w-full text-left px-3 py-2 text-sm hover:bg-[#F2F2F2]" style={{ color: "#3A3A3A" }}>
+            Edit
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onDelete(item); }} className="w-full text-left px-3 py-2 text-sm hover:bg-[#F2F2F2]" style={{ color: "#B42318" }}>
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Clickable avatar + name that opens the author's public profile (Requirement 5c).
 function AuthorLink({ id, name, size, textClass }: { id: string; name: string; size: number; textClass: string }) {
@@ -1394,6 +1441,7 @@ function PostDetail({
                   <span className="text-xs" style={{ color: "#6B7280" }}>{postedLabel(item.created_at)}</span>
                 </div>
               </div>
+              <PostMenu item={item} />
             </div>
 
             <h1 className="mt-3 font-semibold text-xl leading-snug" style={{ color: "#3A3A3A" }}>{item.title}</h1>
@@ -2388,18 +2436,23 @@ function CaptionEditor({ value, onChange, placeholder }: {
   );
 }
 
-function FinderForm({ onSubmit, user }: {
+function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
   onSubmit: (item: Partial<Item>) => "posted" | "queued";
   user: AuthUser;
+  editItem?: Item | null; // Requirement 5d: edit an existing post in place
+  onUpdate?: (id: string, patch: ItemPatch) => void;
+  onCancelEdit?: () => void;
 }) {
   const [queued, setQueued] = useState(false);
-  const [mode, setMode] = useState<"found" | "lost">("found");
+  const [mode, setMode] = useState<"found" | "lost">(editItem?.kind === "lost" ? "lost" : "found");
   // One set of fields for both modes (Requirement 1.0a); submit maps them.
   const emptyFields = () => ({ caption: "", category: "", location: "", note: "" });
-  const [fields, setFields] = useState(emptyFields);
-  const [photoName, setPhotoName] = useState<string | null>(null);
+  const [fields, setFields] = useState(() => editItem
+    ? { caption: joinCaption(editItem.title, editItem.description), category: editItem.category, location: editItem.location_found, note: editItem.private_note ?? "" }
+    : emptyFields());
+  const [photoName, setPhotoName] = useState<string | null>(editItem?.image_url ? "Current photo" : null);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const [photoData, setPhotoData] = useState<string | null>(null); // data URL of the selected image
+  const [photoData, setPhotoData] = useState<string | null>(editItem?.image_url ?? null); // data URL of the selected image
   const [submitted, setSubmitted] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [caption, setCaption] = useState("");
@@ -2407,8 +2460,8 @@ function FinderForm({ onSubmit, user }: {
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [showCaptionImport, setShowCaptionImport] = useState(false);
   // Ownership Challenge (optional, Found only): finder-authored short-text questions.
-  const [challengeQs, setChallengeQs] = useState<ChallengeQuestion[]>([]);
-  const [challengeOpen, setChallengeOpen] = useState(false);
+  const [challengeQs, setChallengeQs] = useState<ChallengeQuestion[]>(editItem?.challenge ?? []);
+  const [challengeOpen, setChallengeOpen] = useState(!!editItem?.challenge?.length);
   const fileRef = useRef<HTMLInputElement>(null);
   const isLost = mode === "lost";
 
@@ -2477,6 +2530,19 @@ function FinderForm({ onSubmit, user }: {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (editItem && onUpdate) {
+      const { title, description } = splitCaption(fields.caption);
+      const challenge = cleanQuestions(challengeQs);
+      onUpdate(editItem.id, {
+        title, description,
+        category: fields.category,
+        location_found: fields.location,
+        private_note: fields.note.trim() || undefined,
+        image_url: photoData ?? undefined,
+        ...(editItem.kind !== "lost" ? { challenge: challenge.length ? challenge : undefined } : {}),
+      });
+      return;
+    }
     setSubmitted(true);
     const { title, description } = splitCaption(fields.caption);
     const common = {
@@ -2537,7 +2603,7 @@ function FinderForm({ onSubmit, user }: {
   return (
     <div className="max-w-lg mx-auto px-4 py-6">
       <div className="mb-4 flex items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold" style={{ color: "#3A3A3A" }}>Log a Found/Lost Item</h1>
+        <h1 className="text-2xl font-semibold" style={{ color: "#3A3A3A" }}>{editItem ? "Edit post" : "Log a Found/Lost Item"}</h1>
       </div>
 
       {/* AI caption import — pop-up in the verification-form card style */}
@@ -2595,7 +2661,8 @@ function FinderForm({ onSubmit, user }: {
                     type="button"
                     role="radio"
                     aria-checked={mode === m}
-                    onClick={() => setMode(m)}
+                    onClick={() => { if (!editItem) setMode(m); }}
+                    disabled={!!editItem && mode !== m}
                     className="px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide rounded transition-colors"
                     style={mode === m
                       ? (m === "lost" ? { background: "#9A3F3F", color: "#FFFFFF" } : { background: "#E6CFA9", color: "#5C2020" })
@@ -2718,7 +2785,10 @@ function FinderForm({ onSubmit, user }: {
           <textarea value={fields.note} onChange={e => setField("note", e.target.value)} rows={2} className={inputCls + " resize-none"} />
         </div>
 
-        <button type="submit" className={btnPrimary + " w-full py-3"}>Post</button>
+        <button type="submit" className={btnPrimary + " w-full py-3"}>{editItem ? "Save" : "Post"}</button>
+        {editItem && (
+          <button type="button" onClick={onCancelEdit} className={btnGrey + " w-full py-3 -mt-2"}>Cancel</button>
+        )}
       </form>
     </div>
   );
@@ -3826,6 +3896,9 @@ export default function App() {
   const [upvotedIds, setUpvotedIds] = usePersistentState<Set<string>>("upvotedIds", new Set(), setSerializer);
   const [upvoteRows, setUpvoteRows] = useState<DbUpvote[]>([]); // shared upvotes (db mode)
   const [authorProfile, setAuthorProfile] = useState<{ id: string; name: string } | null>(null);
+  const [editingItem, setEditingItem] = useState<Item | null>(null); // Requirement 5d
+  // Leaving the composer ends an edit, so "+" always starts a new post.
+  useEffect(() => { if (view !== "log") setEditingItem(null); }, [view]);
   const [profiles, setProfiles] = useState<Record<string, DbProfile>>({});
   // Whichever full-screen view (profile or post) was opened last sits on top.
   const [profileOnTop, setProfileOnTop] = useState(true);
@@ -4296,6 +4369,26 @@ export default function App() {
     return "posted";
   }
 
+  // ─── Edit / delete own post (Requirement 5d) ──────────────────────────────
+  function handleEditPost(item: Item) {
+    setDetailItem(null);
+    setAuthorProfile(null);
+    setEditingItem(item);
+    setView("log");
+  }
+  function handleUpdateItem(id: string, patch: ItemPatch) {
+    setItems(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i));
+    if (isDbEnabled) updateItem(id, patch);
+    setEditingItem(null);
+    setView("catalog");
+  }
+  function handleDeletePost(item: Item) {
+    if (!window.confirm("Delete this post? This can't be undone.")) return;
+    setItems(prev => prev.filter(i => i.id !== item.id));
+    if (detailItem?.id === item.id) setDetailItem(null);
+    if (isDbEnabled) deleteItem(item.id);
+  }
+
   // ─── Offline queue (Requirement 1.7–1.8) ────────────────────────────────────
   function queueOffline(item: Item) {
     setQueuedItems(enqueue(localStorage, item));
@@ -4354,6 +4447,7 @@ export default function App() {
     <OpenAuthorContext.Provider value={(id, name) => { setAuthorProfile({ id, name }); setProfileOnTop(true); }}>
     <UpvoteOthersContext.Provider value={othersUpvotes}>
     <ProfilesContext.Provider value={{ ...profiles, [user.id]: { name: user.name, avatar_url: user.avatar_url } }}>
+    <PostOwnerContext.Provider value={{ currentUserId: user.id, onEdit: handleEditPost, onDelete: handleDeletePost }}>
     <div className="min-h-screen" style={{ background: "#FFFFFF" }}>
       <Nav view={view} setView={setView} role={role} user={user} search={search} setSearch={setSearch} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} offlineQueueCount={offlineQueueCount} unreadCount={unreadCount} />
       {syncFailures.length > 0 && (
@@ -4367,7 +4461,16 @@ export default function App() {
       <main className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
         {view === "catalog" && <CatalogView items={displayItems} role={role} user={user} search={search} categoryFilter={categoryFilter} onClearFilters={() => { setSearch(""); setCategoryFilter("All"); }} onClaim={handleClaimClick} onUpvote={handleUpvote} upvotedIds={myUpvotedIds} onRepost={setRepostingItem} repostCounts={repostCounts} myRepostItemIds={myRepostItemIds} reposts={reposts} onShare={handleShare} comments={comments} onAddComment={handleAddComment} onAddReply={handleAddReply} challengeResponseCounts={responseCounts} />}
         {view === "gallery" && <GalleryView items={displayItems} user={user} />}
-        {view === "log" && <FinderForm onSubmit={handleFinderSubmit} user={user} />}
+        {view === "log" && (
+          <FinderForm
+            key={editingItem?.id ?? "new"}
+            onSubmit={handleFinderSubmit}
+            user={user}
+            editItem={editingItem}
+            onUpdate={handleUpdateItem}
+            onCancelEdit={() => { setEditingItem(null); setView("catalog"); }}
+          />
+        )}
         {view === "profile" && <ProfileView user={user} items={displayItems} reposts={reposts} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} verification={myVerification} onSubmitVerification={handleSubmitVerification} verifiedIds={verifiedIds} />}
         {view === "staff" && <StaffDashboard items={items} claims={claims} allItems={items} onStatusChange={handleStatusChange} onClaimAction={handleClaimAction} onStaffReply={handleStaffReply} />}
         {view === "notifications" && (
@@ -4455,6 +4558,7 @@ export default function App() {
         />
       )}
     </div>
+    </PostOwnerContext.Provider>
     </ProfilesContext.Provider>
     </UpvoteOthersContext.Provider>
     </OpenAuthorContext.Provider>

@@ -489,3 +489,24 @@ export async function listProfiles(): Promise<Record<string, DbProfile>> {
   }
   return map;
 }
+
+// ─── Edit / delete own post (Requirement 5d) ──────────────────────────────────
+
+export type ItemPatch = Partial<Pick<Item,
+  "title" | "description" | "category" | "location_found" | "private_note" | "image_url" | "challenge">>;
+
+export async function updateItem(id: string, patch: ItemPatch): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const row: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) row[k] = v === undefined ? null : v;
+  const { error } = await supabase!.from("items").update(row).eq("id", id);
+  if (error) { console.warn("updateItem failed:", error.message); return false; }
+  return true;
+}
+
+export async function deleteItem(id: string): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("items").delete().eq("id", id);
+  if (error) { console.warn("deleteItem failed:", error.message); return false; }
+  return true;
+}

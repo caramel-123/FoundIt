@@ -407,6 +407,13 @@ fallback when Supabase isn't configured.
       stats, posts + reposts as cards; no email/sign-out/verification).
   - _Requirements: 5c (2, 3, 3a)_
 
+## Phase 3.7 — Edit / delete own post
+
+- [x] 26a. `PostMenu` (⋯) on card + detail for the author; Edit reuses the
+      composer (`editItem`); Delete with confirm; `db.updateItem` /
+      `db.deleteItem`; migration 0008 `items_delete` policy.
+  - _Requirements: 5d_
+
 ## Phase 3 — Supabase backend
 
 - [x] 13. Provision schema, enums, and indexes (items, claims, claim_messages,
