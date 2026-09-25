@@ -840,10 +840,12 @@ a `CaptionEditor` (one `caption` string rendered as two seamless borderless
 auto-growing textareas: a bold first line that refuses newlines — Enter moves
 focus to the body, pasted newlines split into it — and a normal-weight body
 where Backspace at position 0 merges back into the first line; placeholder
-"What did you find?" / "What did you lose?"), a category
-`<select>` styled as a chip, a 📍 location row as a borderless input (no time
+"What did you find?" / "What did you lose?"), a 📍 location row as a borderless input with an icon-only category button at its
+right end (a tag icon over an invisible native `<select>`, so it works with the
+platform picker) (no time
 field; `time_found` is set to the posting time on submit), and a full-width photo area that becomes the image preview.
-Below the card: `CreateFormCard`/`QuestionBuilder` (Found only), the private
+Below the card: `CreateFormCard`/`QuestionBuilder` (Found only; Lost shows the
+non-interactive `ChallengeInfoCard`, same dashed template), the private
 note, and a full-width Post button. Found and Lost share one field state
 (`caption`, `category`, `location`, `time`, `note`); submit maps it to the
 found or lost item exactly as before. Needs the signed-in user, so `App`
@@ -899,12 +901,34 @@ The bar's top edge is `#E5E5E5`.
 
 ### Form-card style (verification forms, reports, claims, caption pop-up)
 
+(The Log/Edit composer follows the same neutral look: a grey post card without
+an outline, a soft-black/grey Found|Lost switch, grey hint text and icons, a
+grey-edged category chip and photo drop zone, and a soft-black Post button.)
+
 All cards built on the verification-form template share one neutral look: no
 outline, a light grey fill (`#F7F7F8`), soft black (`#3A3A3A`) headings/questions/
 names, grey (`#6B7280`) secondary text and status chips (`#ECECEE` fill), white
 inputs with a light grey edge (`#E5E5E5`), a black primary button, and
 grey-edged secondary buttons. The "Create verification form" entry card uses a
 dashed grey edge. The accent red is not used inside these cards.
+
+### Total upvotes on profiles (Requirements 5b.2, 5c.2)
+
+`App.upvotesFor(userId)` sums, over that user's items, each post's displayed
+upvote count: `item.upvotes` plus, with the shared database, the number of
+`upvotes` rows for the post (everyone's, including the author's own), or, in
+local mode, 1 if this browser upvoted it. `ProfileView` and `PublicProfileView`
+take it as `totalUpvotes` and render it on the same row as the name,
+right-aligned (baseline-aligned with the name).
+
+### Full-bleed dividers
+
+The grey line under each post and repost card, and the line above the posts on
+the profile page, run edge to edge across the screen instead of stopping at the
+centered column. `index.css` defines `.bleed-line` / `.bleed-line-top`: a 1px
+`#E5E5E5` pseudo-element positioned at 50% with `width: 100vw` and
+`margin-left: -50vw`; `html` gets `overflow-x: clip` so the extra scrollbar
+width never causes sideways scrolling.
 
 ### Icon style
 

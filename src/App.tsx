@@ -532,6 +532,15 @@ function IconPen() {
   );
 }
 
+function IconTag() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3.5 12.2V5.5a2 2 0 0 1 2-2h6.7a2 2 0 0 1 1.4.6l6.3 6.3a2 2 0 0 1 0 2.8l-6.7 6.7a2 2 0 0 1-2.8 0L4.1 13.6a2 2 0 0 1-.6-1.4Z"/>
+      <circle cx="8.5" cy="8.5" r="1.1" fill="currentColor" stroke="none"/>
+    </svg>
+  );
+}
+
 function IconX() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -787,6 +796,21 @@ function CreateFormCard({ onOpen, className = "" }: { onOpen: () => void; classN
         <span className="block text-xs" style={{ color: "#6B7280" }}>Ask questions only the real owner can answer.</span>
       </span>
     </button>
+  );
+}
+
+// Lost posts: informational card in the same template as "Create verification form".
+function ChallengeInfoCard() {
+  return (
+    <div className="w-full px-4 py-4 rounded-xl flex items-center gap-3 text-left" style={{ border: "1.5px dashed #D1D5DB", color: "#3A3A3A" }}>
+      <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "#F2F2F2", color: "#3A3A3A" }}>
+        <IconDocument />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold">Challenge from finders</span>
+        <span className="block text-xs" style={{ color: "#6B7280" }}>You'll receive a verification form to answer.</span>
+      </span>
+    </div>
   );
 }
 
@@ -1752,8 +1776,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
   const lostFlow = useLostFlow();
 
   return (
-    <div className="flex flex-col gap-3 py-4 transition-colors"
-      style={{ borderBottom: "1px solid #E5E5E5" }}>
+    <div className="bleed-line flex flex-col gap-3 py-4 transition-colors">
 
       {/* Content — clicking opens the full-screen post detail (Reddit-style) */}
       <div
@@ -1914,7 +1937,7 @@ function RepostCard({ repost, item, onRemove, actions }: {
   };
 }) {
   return (
-    <div className="py-4 flex flex-col gap-2" style={{ borderBottom: "1px solid #E5E5E5" }}>
+    <div className="bleed-line py-4 flex flex-col gap-2">
       <div className="flex items-center gap-1.5">
         <span style={{ color: "#6B7280" }}><IconRepost size={14} /></span>
         <AuthorLink id={repost.user_id} name={repost.user_name} size={20} textClass="text-xs font-semibold" />
@@ -2312,7 +2335,7 @@ function LocationCombobox({ value, onChange, placeholder }: {
           else if (e.key === "Enter" && open && active >= 0 && options[active]) { e.preventDefault(); pick(options[active]); }
           else if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
         }}
-        className="w-full min-w-0 p-0 border-0 bg-transparent outline-none text-sm placeholder:text-[#B8A0A0]"
+        className="w-full min-w-0 p-0 border-0 bg-transparent outline-none text-sm placeholder:text-[#9CA3AF]"
         style={{ color: "#3A3A3A" }}
       />
       {open && options.length > 0 && (
@@ -2332,9 +2355,9 @@ function LocationCombobox({ value, onChange, placeholder }: {
               onMouseDown={e => { e.preventDefault(); pick(place); }}
               onMouseEnter={() => setActive(i)}
               className="px-3 py-2 text-sm cursor-pointer flex items-center gap-2"
-              style={{ background: i === active ? "#F5ECEC" : "transparent", color: "#3A3A3A" }}
+              style={{ background: i === active ? "#F2F2F2" : "transparent", color: "#3A3A3A" }}
             >
-              <span style={{ color: "#9A7070" }}><IconMapPin /></span>
+              <span style={{ color: "#6B7280" }}><IconMapPin /></span>
               {place}
             </li>
           ))}
@@ -2405,7 +2428,7 @@ function CaptionEditor({ value, onChange, placeholder }: {
             setPendingFocus({ to: "body", pos: 0 });
           }
         }}
-        className="w-full p-0 border-0 bg-transparent outline-none resize-none overflow-hidden text-base font-semibold leading-snug placeholder:font-normal placeholder:text-[#B8A0A0]"
+        className="w-full p-0 border-0 bg-transparent outline-none resize-none overflow-hidden text-base font-semibold leading-snug placeholder:font-normal placeholder:text-[#9CA3AF]"
         style={{ color: "#3A3A3A" }}
       />
       {(body || bodyShown) && (
@@ -2429,7 +2452,7 @@ function CaptionEditor({ value, onChange, placeholder }: {
           }}
           onBlur={() => { if (!body) setBodyShown(false); }}
           className="w-full mt-1 p-0 border-0 bg-transparent outline-none resize-none overflow-hidden text-sm leading-relaxed"
-          style={{ color: "#6B3A3A" }}
+          style={{ color: "#4B5563" }}
         />
       )}
     </div>
@@ -2576,23 +2599,23 @@ function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
   if (submitted) {
     return (
       <div className="max-w-lg mx-auto px-4 py-12 text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "#F2EBE5" }}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9A3F3F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "#F2F2F2" }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3A3A3A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </div>
         <h2 className="text-xl font-semibold" style={{ color: "#3A3A3A" }}>{isLost ? "Lost item posted" : "Item logged"}</h2>
-        <p className="mt-2 text-sm leading-relaxed" style={{ color: "#6B3A3A" }}>
+        <p className="mt-2 text-sm leading-relaxed" style={{ color: "#6B7280" }}>
           {isLost
             ? "Your lost-item post is now in the catalog for everyone to see. If someone finds it, they can respond there."
             : "Drop it off at the admin office (Room 101, Main Hall) to complete intake. The item won't appear in the public catalog until staff confirm physical custody."}
         </p>
         {queued && (
-          <p className="mt-3 text-sm font-medium" style={{ color: "#9A3F3F" }}>
+          <p className="mt-3 text-sm font-medium" style={{ color: "#3A3A3A" }}>
             You're offline, so it's saved on this device. It will post when you're back online.
           </p>
         )}
-        <button onClick={resetAll} className={btnPrimary + " mt-6"}>
+        <button onClick={resetAll} className={btnDark + " mt-6"}>
           {isLost ? "Post another" : "Log another item"}
         </button>
       </div>
@@ -2645,16 +2668,16 @@ function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         {/* The post, as it will appear (Requirement 1.0a) */}
-        <article className="rounded-xl p-4 flex flex-col gap-3" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+        <article className="rounded-xl p-4 flex flex-col gap-3" style={{ background: FORM_CARD_BG }}>
           <div className="flex items-center gap-2 flex-wrap">
             <Avatar id={user.id} name={user.name} size={32} />
             <div className="min-w-0 leading-tight">
               <p className="text-sm font-semibold truncate" style={{ color: "#3A3A3A" }}>{user.name}</p>
-              <p className="text-xs" style={{ color: "#9A7070" }}>just now</p>
+              <p className="text-xs" style={{ color: "#6B7280" }}>just now</p>
             </div>
             <div className="ml-auto flex items-center gap-2">
               {/* Found / Lost tag — tap to switch */}
-              <div className="inline-flex rounded-md p-0.5" style={{ background: "#F5ECEC" }} role="radiogroup" aria-label="Post type">
+              <div className="inline-flex rounded-md p-0.5" style={{ background: "#ECECEE" }} role="radiogroup" aria-label="Post type">
                 {(["found", "lost"] as const).map(m => (
                   <button
                     key={m}
@@ -2665,8 +2688,8 @@ function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
                     disabled={!!editItem && mode !== m}
                     className="px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide rounded transition-colors"
                     style={mode === m
-                      ? (m === "lost" ? { background: "#9A3F3F", color: "#FFFFFF" } : { background: "#E6CFA9", color: "#5C2020" })
-                      : { color: "#9A7070" }}
+                      ? { background: "#FFFFFF", color: "#3A3A3A" }
+                      : { color: "#6B7280" }}
                   >
                     {m === "found" ? "Found" : "Lost"}
                   </button>
@@ -2687,7 +2710,7 @@ function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
                 type="button"
                 onClick={() => { setImportMsg(null); setShowCaptionImport(true); }}
                 className="absolute bottom-0 right-0 inline-flex items-center justify-center w-9 h-9 transition-opacity hover:opacity-70"
-                style={{ color: "#9A3F3F" }}
+                style={{ color: "#6B7280" }}
                 aria-label="Generate from caption"
                 title="Generate from caption"
               >
@@ -2696,7 +2719,7 @@ function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
             )}
           </div>
 
-          <div className="flex flex-col gap-2 text-sm" style={{ color: "#6B3A3A" }}>
+          <div className="flex flex-col gap-2 text-sm" style={{ color: "#6B7280" }}>
             <div className="flex items-center gap-2">
               <IconMapPin />
               <LocationCombobox
@@ -2704,26 +2727,31 @@ function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
                 onChange={v => setField("location", v)}
                 placeholder={isLost ? "Where did you lose it?" : "Where did you find it?"}
               />
-            </div>
-            <label className="self-start">
-              <span className="sr-only">Category</span>
-              <select
-                value={fields.category}
-                onChange={e => setField("category", e.target.value)}
-                required
-                className="px-3 py-1 text-xs font-semibold rounded-full border bg-transparent outline-none cursor-pointer"
-                style={{ borderColor: "#C1856D", color: fields.category ? "#3A3A3A" : "#9A7070" }}
+              {/* Category: icon-only; an invisible native select sits on top of it */}
+              <label
+                className="relative shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors hover:bg-[#ECECEE] cursor-pointer"
+                style={{ color: fields.category ? "#3A3A3A" : "#6B7280" }}
+                title={fields.category ? `Category: ${fields.category}` : "Choose a category"}
               >
-                <option value="">Category</option>
-                {CATEGORIES.slice(1).map(c => <option key={c}>{c}</option>)}
-              </select>
-            </label>
+                <IconTag />
+                <select
+                  value={fields.category}
+                  onChange={e => setField("category", e.target.value)}
+                  required
+                  aria-label={fields.category ? `Category: ${fields.category}` : "Category"}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                >
+                  <option value="">Select a category</option>
+                  {CATEGORIES.slice(1).map(c => <option key={c}>{c}</option>)}
+                </select>
+              </label>
+            </div>
           </div>
 
           {/* Photo — where the post image goes */}
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
           {photoData && !processing ? (
-            <div className="relative rounded-lg overflow-hidden" style={{ background: "#D4B890" }} {...dropProps}>
+            <div className="relative rounded-lg overflow-hidden" style={{ background: "#F2F2F2" }} {...dropProps}>
               <img src={photoData} alt={photoName ?? "Selected photo"} className="w-full max-h-96 object-cover" />
               <button
                 type="button"
@@ -2741,16 +2769,16 @@ function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
               onClick={() => fileRef.current?.click()}
               onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileRef.current?.click(); } }}
               className="rounded-lg p-6 text-center cursor-pointer transition-colors"
-              style={{ border: `2px dashed ${dragging ? "#9A3F3F" : "#C1856D"}`, background: dragging ? "#EBD9D9" : "#F5ECEC" }}
+              style={{ border: `2px dashed ${dragging ? "#3A3A3A" : "#D1D5DB"}`, background: dragging ? "#F2F2F2" : "#FFFFFF" }}
               {...dropProps}
             >
               {processing ? (
                 <div className="flex flex-col items-center gap-2">
-                  <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#9A3F3F", borderTopColor: "transparent" }} />
-                  <p className="text-xs" style={{ color: "#6B3A3A" }}>Stripping location metadata…</p>
+                  <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#3A3A3A", borderTopColor: "transparent" }} />
+                  <p className="text-xs" style={{ color: "#6B7280" }}>Stripping location metadata…</p>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-2" style={{ color: "#9A7070" }}>
+                <div className="flex flex-col items-center gap-2" style={{ color: "#6B7280" }}>
                   <IconCamera />
                   <p className="text-sm">{dragging ? "Drop photo here" : "Tap or drag a photo here"}</p>
                 </div>
@@ -2761,6 +2789,7 @@ function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
         </article>
 
         {/* Ownership challenge (optional, Found only) — same verification-form card as the post view */}
+        {isLost && <ChallengeInfoCard />}
         {!isLost && (challengeOpen ? (
           <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ background: FORM_CARD_BG }}>
             <div className="flex items-center justify-between gap-2">
@@ -2782,10 +2811,10 @@ function FinderForm({ onSubmit, user, editItem, onUpdate, onCancelEdit }: {
 
         <div>
           <label className="block text-sm font-medium mb-1.5" style={{ color: "#3A3A3A" }}>Private note to staff</label>
-          <textarea value={fields.note} onChange={e => setField("note", e.target.value)} rows={2} className={inputCls + " resize-none"} />
+          <textarea value={fields.note} onChange={e => setField("note", e.target.value)} rows={2} className={formInputCls + " resize-none"} />
         </div>
 
-        <button type="submit" className={btnPrimary + " w-full py-3"}>{editItem ? "Save" : "Post"}</button>
+        <button type="submit" className={btnDark + " w-full py-3"}>{editItem ? "Save" : "Post"}</button>
         {editItem && (
           <button type="button" onClick={onCancelEdit} className={btnGrey + " w-full py-3 -mt-2"}>Cancel</button>
         )}
@@ -3615,10 +3644,21 @@ function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: 
 
 // ─── My Profile View ──────────────────────────────────────────────────────────
 
-function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verification, onSubmitVerification, verifiedIds }: {
+// Total upvotes across a person's posts, shown under their name (profiles).
+function UpvoteTotal({ total }: { total: number }) {
+  return (
+    <p className="flex items-center gap-1 shrink-0" style={{ color: "#6B7280" }} aria-label={`${total} ${total === 1 ? "upvote" : "upvotes"}`}>
+      <IconChevronUp />
+      <span className="text-lg font-bold" style={{ color: "#3A3A3A" }}>{total}</span>
+    </p>
+  );
+}
+
+function ProfileView({ user, items, reposts, totalUpvotes, onRemoveRepost, onSignOut, verification, onSubmitVerification, verifiedIds }: {
   user: AuthUser;
   items: Item[];
   reposts: Repost[];
+  totalUpvotes: number;
   onRemoveRepost: (itemId: string) => void;
   onSignOut: () => void;
   verification?: StudentVerification;
@@ -3638,8 +3678,6 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
       .map(r => ({ kind: "repost" as const, created_at: r.created_at, repost: r, item: items.find(i => i.id === r.item_id) })),
   ].sort((a, b) => b.created_at.localeCompare(a.created_at));
   const empty = feed.length === 0;
-  const postCount = feed.filter(e => e.kind === "post").length;
-  const repostCount = feed.filter(e => e.kind === "repost").length;
   const isVerified = verifiedIds.has(user.id);
 
   const [docType, setDocType] = useState<DocType>("student_id");
@@ -3679,27 +3717,14 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
           <button onClick={onSignOut} className={btnGrey + " shrink-0"}>Sign out</button>
         </div>
 
-        <h1 className="mt-4 text-2xl font-bold flex items-center gap-2" style={{ color: "#3A3A3A" }}>
-          {user.name}
-          {isVerified && <VerificationBadge size={20} />}
-        </h1>
-        <p className="mt-0.5 text-sm truncate" style={{ color: "#6B7280" }}>{user.email}</p>
-
-        {/* Stats row */}
-        <div className="mt-4 flex items-stretch">
-          <div className="flex-1 px-4 py-3 text-center">
-            <p className="text-lg font-bold" style={{ color: "#3A3A3A" }}>{postCount}</p>
-            <p className="text-xs" style={{ color: "#6B7280" }}>{postCount === 1 ? "Post" : "Posts"}</p>
-          </div>
-          <div className="flex-1 px-4 py-3 text-center">
-            <p className="text-lg font-bold" style={{ color: "#3A3A3A" }}>{repostCount}</p>
-            <p className="text-xs" style={{ color: "#6B7280" }}>{repostCount === 1 ? "Repost" : "Reposts"}</p>
-          </div>
-          <div className="flex-1 px-4 py-3 text-center">
-            <p className="text-lg font-bold" style={{ color: isVerified ? "#3A3A3A" : "#6B7280" }}>{isVerified ? "Yes" : "No"}</p>
-            <p className="text-xs" style={{ color: "#6B7280" }}>Verified</p>
-          </div>
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold flex items-center gap-2 min-w-0" style={{ color: "#3A3A3A" }}>
+            <span className="truncate">{user.name}</span>
+            {isVerified && <VerificationBadge size={20} />}
+          </h1>
+          <UpvoteTotal total={totalUpvotes} />
         </div>
+        <p className="mt-0.5 text-sm truncate" style={{ color: "#6B7280" }}>{user.email}</p>
       </div>
 
       {/* Student verification (Requirement 15) — hidden once verified */}
@@ -3746,7 +3771,7 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
           <p className="text-xs mt-1" style={{ color: "#9A7070" }}>Items you log and posts you repost will show up on your profile.</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="bleed-line-top flex flex-col gap-3">
           {feed.map(entry => (
             entry.kind === "post" ? (
               <ItemCard key={entry.item.id} item={entry.item} role={user.role} />
@@ -3764,11 +3789,12 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
 
 // ─── Public author profile (Requirement 5c) ──────────────────────────────────
 
-function PublicProfileView({ authorId, authorName, items, reposts, currentUserId, onBack, onTop = true }: {
+function PublicProfileView({ authorId, authorName, items, reposts, totalUpvotes, currentUserId, onBack, onTop = true }: {
   authorId: string;
   authorName: string;
   items: Item[];
   reposts: Repost[];
+  totalUpvotes: number;
   currentUserId: string;
   onBack: () => void;
   onTop?: boolean; // above the post detail when opened from it; below when a post is opened from here
@@ -3791,8 +3817,6 @@ function PublicProfileView({ authorId, authorName, items, reposts, currentUserId
         return item && visible(item) ? [{ kind: "repost" as const, created_at: r.created_at, repost: r, item }] : [];
       }),
   ].sort((a, b) => b.created_at.localeCompare(a.created_at));
-  const postCount = feed.filter(e => e.kind === "post").length;
-  const repostCount = feed.length - postCount;
   const name = profile?.name || items.find(i => i.finder_id === authorId)?.finder_name || authorName;
 
   useEffect(() => {
@@ -3814,23 +3838,12 @@ function PublicProfileView({ authorId, authorName, items, reposts, currentUserId
           {/* Header — same layout as your own profile */}
           <div className="mb-6">
             <Avatar id={authorId} name={name} size={80} />
-            <h1 className="mt-4 text-2xl font-bold flex items-center gap-2" style={{ color: "#3A3A3A" }}>
-              {name}
-              {verified && <VerificationBadge size={20} />}
-            </h1>
-            <div className="mt-4 flex items-stretch">
-              <div className="flex-1 px-4 py-3 text-center">
-                <p className="text-lg font-bold" style={{ color: "#3A3A3A" }}>{postCount}</p>
-                <p className="text-xs" style={{ color: "#6B7280" }}>{postCount === 1 ? "Post" : "Posts"}</p>
-              </div>
-              <div className="flex-1 px-4 py-3 text-center">
-                <p className="text-lg font-bold" style={{ color: "#3A3A3A" }}>{repostCount}</p>
-                <p className="text-xs" style={{ color: "#6B7280" }}>{repostCount === 1 ? "Repost" : "Reposts"}</p>
-              </div>
-              <div className="flex-1 px-4 py-3 text-center">
-                <p className="text-lg font-bold" style={{ color: verified ? "#3A3A3A" : "#6B7280" }}>{verified ? "Yes" : "No"}</p>
-                <p className="text-xs" style={{ color: "#6B7280" }}>Verified</p>
-              </div>
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <h1 className="text-2xl font-bold flex items-center gap-2 min-w-0" style={{ color: "#3A3A3A" }}>
+                <span className="truncate">{name}</span>
+                {verified && <VerificationBadge size={20} />}
+              </h1>
+              <UpvoteTotal total={totalUpvotes} />
             </div>
           </div>
 
@@ -4027,6 +4040,16 @@ export default function App() {
     : upvotedIds;
   const othersUpvotes = (postId: string) =>
     upvoteRows.filter(r => r.post_id === postId && r.user_id !== user?.id).length;
+
+  // Total upvotes on all of a user's posts (Requirements 5b.2, 5c.2): each post's
+  // displayed count = base + (db: every upvote row | local: my own upvote).
+  function upvotesFor(userId: string): number {
+    return displayItems
+      .filter(i => i.finder_id === userId)
+      .reduce((sum, i) => sum + i.upvotes + (isDbEnabled
+        ? upvoteRows.filter(r => r.post_id === i.id).length
+        : (upvotedIds.has(i.id) ? 1 : 0)), 0);
+  }
 
   function handleUpvote(id: string) {
     if (isDbEnabled) {
@@ -4471,7 +4494,7 @@ export default function App() {
             onCancelEdit={() => { setEditingItem(null); setView("catalog"); }}
           />
         )}
-        {view === "profile" && <ProfileView user={user} items={displayItems} reposts={reposts} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} verification={myVerification} onSubmitVerification={handleSubmitVerification} verifiedIds={verifiedIds} />}
+        {view === "profile" && <ProfileView user={user} items={displayItems} reposts={reposts} totalUpvotes={upvotesFor(user.id)} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} verification={myVerification} onSubmitVerification={handleSubmitVerification} verifiedIds={verifiedIds} />}
         {view === "staff" && <StaffDashboard items={items} claims={claims} allItems={items} onStatusChange={handleStatusChange} onClaimAction={handleClaimAction} onStaffReply={handleStaffReply} />}
         {view === "notifications" && (
           <NotificationsView
@@ -4524,6 +4547,7 @@ export default function App() {
           authorName={authorProfile.name}
           items={displayItems}
           reposts={reposts}
+          totalUpvotes={upvotesFor(authorProfile.id)}
           currentUserId={user.id}
           onBack={() => setAuthorProfile(null)}
           onTop={profileOnTop}

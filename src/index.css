@@ -39,6 +39,22 @@ html {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Full-bleed grey dividers: run to both screen edges, past the centered column. */
+html { overflow-x: clip; }
+.bleed-line, .bleed-line-top { position: relative; }
+.bleed-line::after, .bleed-line-top::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
+  height: 1px;
+  background: #E5E5E5;
+  pointer-events: none;
+}
+.bleed-line::after { bottom: 0; }
+.bleed-line-top::before { top: 0; }
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

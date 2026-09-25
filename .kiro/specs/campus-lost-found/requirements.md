@@ -42,11 +42,13 @@ optional photo, so that I can hand it to the office and have it tracked.
    will create**: the signed-in user's profile photo and name, "just now", and a
    tappable **Found / Lost** tag (which is the mode toggle) in the post header;
    the caption typed directly into the post (first line styled as the title),
-   with grey template hints rather than prefilled text; a category chip; a 📍
-   location row (there is no time field — the item's time is recorded as the
+   with grey template hints rather than prefilled text; a 📍 location row
+   with an icon-only tag button at its right end that opens the category list
+   (the icon turns soft black once a category is chosen; its tooltip names it);
+   the location row (there is no time field — the item's time is recorded as the
    moment it is posted); and the photo area where the post image goes,
    showing the image once chosen. Below the post: the verification form card
-   (Found only), the private note to staff, and a **Post** button. The
+   (Found only; on a Lost post an informational card of the same style, not a button, says the owner will receive a verification form/challenge from finders), the private note to staff, and a **Post** button. The
    caption-import action is a plain ✨ icon at the bottom-right of the caption
    area; it opens the caption import as a pop-up dialog over a dimmed
    backdrop, styled like the verification-form card (white, sand border,
@@ -331,7 +333,11 @@ reposted in one place.
 1. THE navigation SHALL NOT include separate "My Timeline" or "Profile" tabs;
    instead the profile picture (avatar) in the header SHALL open the profile when
    clicked.
-2. THE Profile view SHALL show a header with the user's avatar, name, and email.
+2. THE Profile view SHALL show a header with the user's avatar, name, and email,
+   and the user's **total upvotes**, on the right of the name row: the sum of the upvotes on all of that
+   user's posts (the same per-post counts shown on the post cards), shown as
+   the upvote icon followed by the number (no text label; the accessible name
+   is "N upvotes").
 3. THE Profile view SHALL list the items the user has logged (their posts) and
    the items the user has reposted, newest first.
 4. WHERE the user has no posts or reposts THE Profile SHALL show an empty state.
@@ -350,10 +356,10 @@ that I can view their public profile and see what else they have posted.
    (which shows the finder's avatar next to their name) THEN the system SHALL
    open a public author profile view.
 2. THE author profile view SHALL use the same layout as the user's own profile
-   (Requirement 5b): a large profile photo, display name with the verified
-   student badge (if verified), and a stats row (Posts, Reposts, Verified
-   Yes/No). It SHALL NOT show the author's email, a sign-out control, or the
-   student-verification form.
+   (Requirement 5b): a large profile photo and display name with the verified
+   student badge (if verified), and the author's total upvotes (Requirement
+   5b.2). There is no Posts / Reposts / Verified stats row on any profile. It SHALL NOT show the author's email, a
+   sign-out control, or the student-verification form.
 3. THE author profile view SHALL list the author's public posts and reposts,
    newest first, rendered as the same post cards used in the feed.
 3a. EVERY avatar in the app SHALL show the person's Google profile photo when
