@@ -388,10 +388,24 @@ fallback when Supabase isn't configured.
 ## Phase 3.4 — Mobile navigation
 
 - [x] 23a. Mobile bottom tab bar (`BottomNav`)
-  - Feed / Community / raised "+" / Alerts (unread badge) / Profile; lift catalog
+  - Feed / Community / square "+" / Alerts (unread badge) / Profile; lift catalog
     layout mode into `App`; hide header "+"/bell/avatar and the catalog toggle
     below `md`; safe-area padding; staff variant without "+".
   - _Requirements: 11a (3, 9), 3 (9), 18 (3)_
+
+## Phase 3.5 — Caption-only log form
+
+- [x] 24a. Single Caption field on the Log form (Found and Lost)
+  - `splitCaption` / `joinCaption` in `src/lib/captionHeuristic.ts` (+ tests);
+    first line → title, rest → description; caption import fills the caption.
+  - _Requirements: 1 (0, 1, 1a, 2), 12 (2)_
+
+## Phase 3.6 — Public profiles like your own
+
+- [x] 25a. `profiles` table + upsert on sign-in + `ProfilesContext`; `Avatar`
+      shows photos. Author profile page mirrors `ProfileView` (photo, name,
+      stats, posts + reposts as cards; no email/sign-out/verification).
+  - _Requirements: 5c (2, 3, 3a)_
 
 ## Phase 3 — Supabase backend
 

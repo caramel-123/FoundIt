@@ -4,6 +4,7 @@ import type { AuthState, AuthUser, Role } from "./lib/auth";
 import { getSession, signInWithGoogle, signOut, onAuthChange } from "./lib/auth";
 import { createContext, useContext } from "react";
 import { parseCaption } from "./lib/captionImport";
+import { splitCaption, joinCaption } from "./lib/captionHeuristic";
 import { verifyStudent } from "./lib/studentVerify";
 import {
   isDbEnabled, listItems, createItem, subscribeItems,
@@ -15,13 +16,15 @@ import {
   updateItemStatus,
   listClaims, createClaim, updateClaimStatus, insertClaimMessage, escalateChallengeResponse, subscribeClaims,
   listUpvotes, setUpvote, subscribeUpvotes,
+  upsertProfile, listProfiles,
 } from "./lib/db";
-import type { DbUpvote } from "./lib/db";
+import type { DbUpvote, DbProfile } from "./lib/db";
 import { reencodeImage } from "./lib/image";
 import { formatDate, relativeDate, postedLabel } from "./lib/time";
 import { countCommentNodes, nodeContains, addReply, visibleThreads } from "./lib/comments";
 import { claimBlockedUntil as computeClaimBlockedUntil } from "./lib/claimLimit";
 import { readQueue, enqueue, replayQueue } from "./lib/offlineQueue";
+import { matchPlaces } from "./lib/campusPlaces";
 import type {
   ItemStatus, ClaimStatus, Item, ChallengeQuestion, ChallengeAnswer, ChallengeResponseStatus, ChallengeResponse, AppNotification, Claim, ClaimMessage, CommentNode, ItemComment, VerificationStatus, DocType, StudentVerification, Repost,
 } from "./types";
@@ -83,7 +86,6 @@ const setSerializer: Serializer<Set<string>> = {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ShareResult = "shared" | "copied" | "failed" | "cancelled";
-type CatalogMode = "feed" | "community";
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
@@ -111,12 +113,30 @@ function avatarColor(id: string) {
   for (let i = 0; i < id.length; i++) sum += id.charCodeAt(i);
   return AVATAR_COLORS[sum % AVATAR_COLORS.length];
 }
+// Known profile photos by user id (Requirement 5c.3a).
+const ProfilesContext = createContext<Record<string, { name: string; avatar_url?: string }>>({});
+
 function Avatar({ id, name: nameProp, size = 32 }: { id: string; name?: string; size?: number }) {
   const name = nameProp || userName(id);
+  const photo = useContext(ProfilesContext)[id]?.avatar_url;
+  const [broken, setBroken] = useState(false);
+  if (photo && !broken) {
+    return (
+      <img
+        src={photo}
+        alt=""
+        aria-hidden="true"
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(true)}
+        className="rounded-full shrink-0 object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <span
       className="inline-flex items-center justify-center rounded-full shrink-0 font-semibold"
-      style={{ width: size, height: size, background: avatarColor(id), color: "#FBF9D1", fontSize: size * 0.4 }}
+      style={{ width: size, height: size, background: avatarColor(id), color: "#FFFFFF", fontSize: size * 0.4 }}
       aria-hidden="true"
     >
       {initials(name)}
@@ -126,13 +146,6 @@ function Avatar({ id, name: nameProp, size = 32 }: { id: string; name?: string; 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Current local date/time formatted for a <input type="datetime-local"> value
-// (YYYY-MM-DDTHH:mm, in the user's local timezone).
-function nowForDateTimeLocal() {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
@@ -155,37 +168,36 @@ const CLAIM_STATUS_LABELS: Record<ClaimStatus, string> = {
 // Small status icons (14px) for the status badge
 function IconArchive() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="1" y="3" width="22" height="5" rx="1"/>
-      <path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/>
-      <line x1="10" y1="12" x2="14" y2="12"/>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="5" rx="2"/>
+      <path d="M5 9v9a2.5 2.5 0 0 0 2.5 2.5h9A2.5 2.5 0 0 0 19 18V9"/>
+      <path d="M10 13h4"/>
     </svg>
   );
 }
 function IconOffice() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 21h18"/>
-      <path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/>
-      <path d="M15 9h4a2 2 0 0 1 2 2v10"/>
-      <line x1="9" y1="7" x2="9" y2="7"/><line x1="9" y1="11" x2="9" y2="11"/><line x1="9" y1="15" x2="9" y2="15"/>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3.5 20.5h17"/>
+      <path d="M5.5 20.5V6A2.5 2.5 0 0 1 8 3.5h5A2.5 2.5 0 0 1 15.5 6v14.5"/>
+      <path d="M15.5 9.5H17a2 2 0 0 1 2 2v9"/>
+      <path d="M9 8h2.5M9 12h2.5M9 16h2.5"/>
     </svg>
   );
 }
 function IconBag() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
-      <line x1="3" y1="6" x2="21" y2="6"/>
-      <path d="M16 10a4 4 0 0 1-8 0"/>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 8.5A1.5 1.5 0 0 1 6.5 7h11A1.5 1.5 0 0 1 19 8.5l-.8 10.2a2 2 0 0 1-2 1.8H7.8a2 2 0 0 1-2-1.8Z"/>
+      <path d="M9 10V7a3 3 0 0 1 6 0v3"/>
     </svg>
   );
 }
 function IconCheckCircle() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-      <polyline points="22 4 12 14.01 9 11.01"/>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="m8.5 12.2 2.4 2.4 4.6-4.9"/>
     </svg>
   );
 }
@@ -237,7 +249,7 @@ function VerificationBadge({ size = 14 }: { size?: number }) {
     >
       <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M12 1.5l2.6 1.9 3.2-.2 1 3.1 2.6 1.9-1 3.1 1 3.1-2.6 1.9-1 3.1-3.2-.2L12 22.5l-2.6-1.9-3.2.2-1-3.1L2.6 15.8l1-3.1-1-3.1 2.6-1.9 1-3.1 3.2.2z"/>
-        <path d="M10.6 15.2l-2.4-2.4 1.1-1.1 1.3 1.3 3.4-3.4 1.1 1.1z" fill="#FBF9D1"/>
+        <path d="M10.6 15.2l-2.4-2.4 1.1-1.1 1.3 1.3 3.4-3.4 1.1 1.1z" fill="#FFFFFF"/>
       </svg>
     </span>
   );
@@ -285,7 +297,7 @@ function AuthorLink({ id, name, size, textClass }: { id: string; name: string; s
       className="flex items-center gap-1.5 min-w-0 hover:opacity-80"
     >
       <Avatar id={id} name={name} size={size} />
-      <span className={textClass + " hover:underline truncate"} style={{ color: "#2C1414" }}>{name}</span>
+      <span className={textClass + " hover:underline truncate"} style={{ color: "#111111" }}>{name}</span>
     </button>
   );
 }
@@ -308,20 +320,20 @@ function ClaimBadge({ status }: { status: ClaimStatus }) {
 
 function IconCamera() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-      <circle cx="12" cy="13" r="4"/>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 9a2.5 2.5 0 0 1 2.5-2.5h1.7l1.3-2h7l1.3 2h1.7A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5Z"/>
+      <circle cx="12" cy="13" r="3.5"/>
     </svg>
   );
 }
 
 function IconUsers() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-      <circle cx="9" cy="7" r="4"/>
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="9" cy="8" r="3.5"/>
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0"/>
+      <path d="M15.5 4.8a3.5 3.5 0 0 1 0 6.4"/>
+      <path d="M18 14.3a6.5 6.5 0 0 1 3.5 5.7"/>
     </svg>
   );
 }
@@ -329,8 +341,8 @@ function IconUsers() {
 function IconArrowRight() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M5 12h14"/>
-      <path d="m12 5 7 7-7 7"/>
+      <path d="M4.5 12h15"/>
+      <path d="m13 5.5 6.5 6.5-6.5 6.5"/>
     </svg>
   );
 }
@@ -338,170 +350,158 @@ function IconArrowRight() {
 function IconArrowLeft() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M19 12H5"/>
-      <path d="m12 19-7-7 7-7"/>
+      <path d="M19.5 12h-15"/>
+      <path d="M11 18.5 4.5 12 11 5.5"/>
     </svg>
   );
 }
 
 function IconSparkles() {
+  const star = (x: number, y: number, r: number) =>
+    `M${x} ${y - r}Q${x} ${y} ${x + r} ${y}Q${x} ${y} ${x} ${y + r}Q${x} ${y} ${x - r} ${y}Q${x} ${y} ${x} ${y - r}Z`;
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 2.5l1.6 4.4a4 4 0 0 0 2.4 2.4l4.4 1.6-4.4 1.6a4 4 0 0 0-2.4 2.4L12 19.3l-1.6-4.4a4 4 0 0 0-2.4-2.4L3.6 10.9l4.4-1.6a4 4 0 0 0 2.4-2.4z"/>
-      <path d="M5 3.5l.7 1.9a1.6 1.6 0 0 0 1 1l1.9.7-1.9.7a1.6 1.6 0 0 0-1 1L5 10.6l-.7-1.9a1.6 1.6 0 0 0-1-1L1.4 7l1.9-.7a1.6 1.6 0 0 0 1-1z"/>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true">
+      <path d={star(9.5, 13.5, 7)} />
+      <path d={star(18.5, 5, 3.5)} />
+      <path d={star(18.5, 19, 2.5)} />
     </svg>
   );
 }
 
 function IconSearch() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8"/>
-      <path d="m21 21-4.35-4.35"/>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="7"/>
+      <path d="m15.6 15.6 4.9 4.9"/>
     </svg>
   );
 }
 
 function IconBell() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
-      <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 16.2V11a6 6 0 1 0-12 0v5.2l-1.4 1.9a.6.6 0 0 0 .5 1h13.8a.6.6 0 0 0 .5-1Z"/>
+      <path d="M9.8 21.5a2.5 2.5 0 0 0 4.4 0"/>
     </svg>
   );
 }
 
 function IconDocument() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-      <polyline points="14 2 14 8 20 8"/>
-      <line x1="16" y1="13" x2="8" y2="13"/>
-      <line x1="16" y1="17" x2="8" y2="17"/>
-      <polyline points="10 9 9 9 8 9"/>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8Z"/>
+      <path d="M14 3v3.5A1.5 1.5 0 0 0 15.5 8H19"/>
+      <path d="M9 13h6M9 17h4"/>
     </svg>
   );
 }
 
 function IconPlus() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19"/>
-      <line x1="5" y1="12" x2="19" y2="12"/>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 4.5v15M4.5 12h15"/>
     </svg>
   );
 }
 
-function IconMenu() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="3" y1="6" x2="21" y2="6"/>
-      <line x1="3" y1="12" x2="21" y2="12"/>
-      <line x1="3" y1="18" x2="21" y2="18"/>
-    </svg>
-  );
-}
 
 function IconFilter() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 6h16M7 12h10M10 18h4"/>
     </svg>
   );
 }
 
 function IconShield() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-      <path d="m9 12 2 2 4-4"/>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 21s7.5-3.4 7.5-9.5V6.2L12 3.5 4.5 6.2v5.3C4.5 17.6 12 21 12 21Z"/>
+      <path d="m9 12 2.2 2.2L15.2 10"/>
     </svg>
   );
 }
 
 function IconClock() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/>
-      <polyline points="12 6 12 12 16 14"/>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M12 7.5V12l3 2"/>
     </svg>
   );
 }
 
 function IconMapPin() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-      <circle cx="12" cy="10" r="3"/>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 21.5s7-6.1 7-11.5a7 7 0 1 0-14 0c0 5.4 7 11.5 7 11.5Z"/>
+      <circle cx="12" cy="10" r="2.5"/>
     </svg>
   );
 }
 
 function IconChevronUp({ filled }: { filled?: boolean }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="18 15 12 9 6 15"/>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 5.5 19 16H5Z"/>
     </svg>
   );
 }
 
 function IconComment() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20.6 16.8A9 9 0 1 0 16.8 20.6L21.5 21.5Z"/>
     </svg>
   );
 }
 
-function IconRepost() {
+function IconRepost({ size = 18 }: { size?: number }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="17 1 21 5 17 9"/>
-      <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
-      <polyline points="7 23 3 19 7 15"/>
-      <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m17 2.5 3 3-3 3"/>
+      <path d="M20 5.5H9A4.5 4.5 0 0 0 4.5 10v1.5"/>
+      <path d="m7 21.5-3-3 3-3"/>
+      <path d="M4 18.5h11a4.5 4.5 0 0 0 4.5-4.5v-1.5"/>
     </svg>
   );
 }
 
 function IconShare() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-      <polyline points="16 6 12 2 8 6"/>
-      <line x1="12" y1="2" x2="12" y2="15"/>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21.5 2.5 10.7 13.3"/>
+      <path d="M21.5 2.5 15 20.8a.6.6 0 0 1-1.1.1l-3.2-7.6-7.6-3.2a.6.6 0 0 1 .1-1.1Z"/>
+    </svg>
+  );
+}
+
+function IconPen() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3Z"/>
+      <path d="m14.5 7.5 3 3"/>
     </svg>
   );
 }
 
 function IconX() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="6" x2="6" y2="18"/>
-      <line x1="6" y1="6" x2="18" y2="18"/>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6 6 18"/>
     </svg>
   );
 }
 
-function IconInbox() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-      <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
-    </svg>
-  );
-}
 
 function IconWifi() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="1" y1="1" x2="23" y2="23"/>
-      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
-      <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
-      <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
-      <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
-      <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-      <line x1="12" y1="20" x2="12.01" y2="20"/>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m3 3 18 18"/>
+      <path d="M2.5 9.2a14 14 0 0 1 4-2.5M10.5 5.1A14 14 0 0 1 21.5 9.2"/>
+      <path d="M5.5 12.6a9 9 0 0 1 4.4-2.4M16.2 11a9 9 0 0 1 2.3 1.6"/>
+      <path d="M9 16a4.5 4.5 0 0 1 6 0"/>
+      <path d="M12 19.5h.01"/>
     </svg>
   );
 }
@@ -509,10 +509,10 @@ function IconWifi() {
 // ─── Input styles (shared) ────────────────────────────────────────────────────
 
 const inputCls = "w-full px-3 py-2.5 text-sm rounded-lg focus:outline-none focus:ring-2 border"
-  + " bg-[#FBF9D1] border-[#C1856D] text-[#2C1414] placeholder:text-[#9A7070]"
+  + " bg-[#FFFFFF] border-[#C1856D] text-[#2C1414] placeholder:text-[#9A7070]"
   + " focus:ring-[#9A3F3F] focus:border-[#9A3F3F]";
 
-const btnPrimary = "px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors text-[#FBF9D1] bg-[#9A3F3F] hover:bg-[#7A2E2E]";
+const btnPrimary = "px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors text-[#FFFFFF] bg-[#9A3F3F] hover:bg-[#7A2E2E]";
 const btnSecondary = "px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors border border-[#C1856D] text-[#9A3F3F] hover:bg-[#F5ECEC]";
 
 // ─── Post Actions (shared by item cards and repost cards) ───────────────────────
@@ -559,11 +559,11 @@ function PostActions({
 
   return (
     <>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-3">
         <button
           onClick={() => onUpvote?.(postId)}
-          className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
-          style={{ background: "transparent", border: `1px solid ${upvoted ? "#9A3F3F" : "#C1856D"}`, color: upvoted ? "#9A3F3F" : "#6B3A3A" }}
+          className="flex items-center gap-1.5 text-xs font-medium px-1.5 py-1 rounded-md transition-opacity hover:opacity-70"
+          style={{ color: upvoted ? "#111111" : "#6B7280" }}
         >
           <IconChevronUp filled={upvoted} />
           <span>{baseUpvotes + othersUpvotes + (upvoted ? 1 : 0)}</span>
@@ -571,8 +571,8 @@ function PostActions({
 
         <button
           onClick={() => openDetail(repostItem)}
-          className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
-          style={{ background: "transparent", border: "1px solid #C1856D", color: "#6B3A3A" }}
+          className="flex items-center gap-1.5 text-xs font-medium px-1.5 py-1 rounded-md transition-opacity hover:opacity-70"
+          style={{ color: "#6B7280" }}
           aria-label="Comments"
         >
           <IconComment />
@@ -581,8 +581,8 @@ function PostActions({
 
         <button
           onClick={() => onRepost?.(repostItem)}
-          className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
-          style={{ background: "transparent", border: `1px solid ${reposted ? "#9A3F3F" : "#C1856D"}`, color: reposted ? "#9A3F3F" : "#6B3A3A" }}
+          className="flex items-center gap-1.5 text-xs font-medium px-1.5 py-1 rounded-md transition-opacity hover:opacity-70"
+          style={{ color: reposted ? "#111111" : "#6B7280" }}
           aria-label="Repost"
           aria-pressed={reposted}
           title={reposted ? "You reposted this" : "Repost"}
@@ -593,15 +593,15 @@ function PostActions({
 
         <button
           onClick={handleShareClick}
-          className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors"
-          style={{ background: "transparent", border: "1px solid #C1856D", color: "#6B3A3A" }}
+          className="flex items-center gap-1.5 text-xs font-medium px-1.5 py-1 rounded-md transition-opacity hover:opacity-70"
+          style={{ color: "#6B7280" }}
           aria-label="Share"
           title="Share"
         >
           <IconShare />
         </button>
 
-        {shareMsg && <span className="text-xs font-medium" style={{ color: "#9A3F3F" }}>{shareMsg}</span>}
+        {shareMsg && <span className="text-xs font-medium" style={{ color: "#111111" }}>{shareMsg}</span>}
 
         {extra}
       </div>
@@ -610,6 +610,167 @@ function PostActions({
 }
 
 // ─── Inline Ownership Action Section (inside PostDetail) ────────────────────────
+
+// ─── Verification-form question builder (Requirements 16.1, 17.2) ─────────────
+
+function sampleQuestion(): ChallengeQuestion {
+  return { id: `q${Date.now()}`, prompt: "What is the color of the item?" };
+}
+/** Questions worth sending: trimmed, blanks dropped. */
+function cleanQuestions(qs: ChallengeQuestion[]): ChallengeQuestion[] {
+  return qs.map(q => ({ ...q, prompt: q.prompt.trim() })).filter(q => q.prompt);
+}
+
+// Numbered questions as text + pen (edit in place, no box) + answer preview + ✕,
+// and "+ Add question". Edits update the parent list as you type.
+function QuestionBuilder({ questions, onChange }: {
+  questions: ChallengeQuestion[];
+  onChange: (qs: ChallengeQuestion[]) => void;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [before, setBefore] = useState(""); // text before editing; "" for a new question
+  const [isNew, setIsNew] = useState(false);
+
+  function startEdit(q: ChallengeQuestion) { setEditingId(q.id); setBefore(q.prompt); setIsNew(false); }
+  function setPrompt(id: string, prompt: string) { onChange(questions.map(q => q.id === id ? { ...q, prompt } : q)); }
+  function remove(id: string) { onChange(questions.filter(q => q.id !== id)); }
+  // Empty text restores the previous question, or drops a just-added one.
+  function finish(restore: boolean) {
+    const q = questions.find(x => x.id === editingId);
+    if (q && (restore || !q.prompt.trim())) {
+      if (isNew) remove(q.id); else setPrompt(q.id, before);
+    } else if (q) {
+      setPrompt(q.id, q.prompt.trim());
+    }
+    setEditingId(null);
+  }
+  function add() {
+    const id = `q${Date.now()}`;
+    // Finish any open edit in the same update so the list isn't overwritten.
+    const base = questions
+      .filter(q => !(q.id === editingId && isNew && !q.prompt.trim()))
+      .map(q => q.id === editingId && !q.prompt.trim() ? { ...q, prompt: before } : q);
+    onChange([...base, { id, prompt: "" }]);
+    setEditingId(id); setBefore(""); setIsNew(true);
+  }
+
+  return (
+    <>
+      {questions.map((q, i) => (
+        <div key={q.id} className="flex flex-col gap-1.5">
+          <div className="flex items-start justify-between gap-2">
+            {editingId === q.id ? (
+              <div className="flex items-baseline gap-1 flex-1 min-w-0 text-sm font-medium" style={{ color: "#2C1414" }}>
+                <span className="shrink-0">{i + 1}.</span>
+                {/* Edit in place: no box, just the caret. */}
+                <input
+                  type="text"
+                  autoFocus
+                  value={q.prompt}
+                  onChange={ev => setPrompt(q.id, ev.target.value)}
+                  onBlur={() => finish(false)}
+                  onKeyDown={ev => {
+                    if (ev.key === "Enter") { ev.preventDefault(); finish(false); }
+                    if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); finish(true); }
+                  }}
+                  placeholder="Type your question"
+                  aria-label={`Edit question ${i + 1}`}
+                  className="flex-1 min-w-0 p-0 border-0 bg-transparent outline-none text-sm font-medium"
+                  style={{ color: "#2C1414", caretColor: "#9A3F3F" }}
+                />
+              </div>
+            ) : (
+              <p className="text-sm font-medium flex items-center gap-1.5 min-w-0" style={{ color: "#2C1414" }}>
+                <span className="break-words">{i + 1}. {q.prompt}</span>
+                <button type="button" onClick={() => startEdit(q)} aria-label={`Edit question ${i + 1}`} className="shrink-0 hover:opacity-70" style={{ color: "#9A7070" }}>
+                  <IconPen />
+                </button>
+              </p>
+            )}
+            <button type="button" onMouseDown={ev => ev.preventDefault()} onClick={() => { if (editingId === q.id) setEditingId(null); remove(q.id); }} aria-label={`Remove question ${i + 1}`} className="shrink-0 hover:opacity-70" style={{ color: "#9A7070" }}>
+              <IconX />
+            </button>
+          </div>
+          {/* Preview of where the owner will answer */}
+          <input
+            type="text"
+            disabled
+            aria-label={`Owner's answer to question ${i + 1} (preview)`}
+            placeholder="Owner's answer"
+            className="w-full sm:w-2/3 h-9 px-3 text-sm rounded-lg border"
+            style={{ borderColor: "#E6CFA9", background: "#FFFFFF", color: "#9A7070" }}
+          />
+        </div>
+      ))}
+      <button
+        type="button"
+        onMouseDown={ev => ev.preventDefault()}
+        onClick={add}
+        className="inline-flex items-center gap-1 self-start text-sm font-semibold hover:opacity-70"
+        style={{ color: "#9A3F3F" }}
+      >
+        + Add question
+      </button>
+    </>
+  );
+}
+
+// Dashed "Create verification form" card that opens the builder.
+function CreateFormCard({ onOpen, className = "" }: { onOpen: () => void; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={"w-full px-4 py-4 rounded-xl flex items-center gap-3 text-left transition-colors hover:bg-[#F5ECEC] " + className}
+      style={{ border: "1.5px dashed #C1856D", color: "#2C1414" }}
+    >
+      <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
+        <IconPlus />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold">Create verification form</span>
+        <span className="block text-xs" style={{ color: "#6B3A3A" }}>Ask questions only the real owner can answer.</span>
+      </span>
+    </button>
+  );
+}
+
+// Read-only record of a submitted report/claim: questions with answers, plus notes.
+function SubmittedAnswers({ answers, emptyAnswerText, note, noteLabel, ownerNote }: {
+  answers: ChallengeAnswer[];
+  emptyAnswerText: string;
+  note?: string;
+  noteLabel: string;
+  ownerNote?: string;
+}) {
+  if (answers.length === 0 && !note && !ownerNote) return null;
+  return (
+    <div className="flex flex-col gap-4">
+      {answers.map((a, i) => (
+        <div key={a.question_id} className="flex flex-col gap-1.5">
+          <p className="text-sm font-medium" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</p>
+          {/* Read-only answer box, same shape as the form's answer field. */}
+          <div
+            className="w-full sm:w-2/3 min-h-9 px-3 py-2 text-sm rounded-lg border break-words"
+            style={{ borderColor: a.answer ? "#C1856D" : "#E6CFA9", color: a.answer ? "#2C1414" : "#9A7070" }}
+          >
+            {a.answer || emptyAnswerText}
+          </div>
+        </div>
+      ))}
+      {note && (
+        <p className="text-sm" style={{ color: "#6B3A3A" }}>
+          <span className="font-medium" style={{ color: "#2C1414" }}>{noteLabel}:</span> {note}
+        </p>
+      )}
+      {ownerNote && (
+        <p className="text-sm" style={{ color: "#6B3A3A" }}>
+          <span className="font-medium" style={{ color: "#2C1414" }}>Owner's reply:</span> {ownerNote}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function OwnershipActionSection({
   item,
@@ -620,7 +781,9 @@ function OwnershipActionSection({
   onOwnerAnswer,
   onApprove,
   onReject,
+  onEscalate,
   initialOpen = false,
+  initialReportId = null,
 }: {
   item: Item;
   currentUserId: string;
@@ -630,7 +793,9 @@ function OwnershipActionSection({
   onOwnerAnswer?: (responseId: string, answers: ChallengeAnswer[], ownerNote: string) => void;
   onApprove?: (responseId: string) => void;
   onReject?: (responseId: string) => void;
+  onEscalate?: (responseId: string) => void;
   initialOpen?: boolean;
+  initialReportId?: string | null; // owner: open this form directly (e.g. from a notification)
 }) {
   const [isOpen, setIsOpen] = useState(initialOpen);
   const [qs, setQs] = useState<ChallengeQuestion[]>([]);
@@ -638,7 +803,8 @@ function OwnershipActionSection({
   const [challengeAnswers, setChallengeAnswers] = useState<Record<string, string>>({});
   const [claimantNote, setClaimantNote] = useState("");
   const [ownerAnswers, setOwnerAnswers] = useState<Record<string, string>>({});
-  const [ownerReplyNote, setOwnerReplyNote] = useState("");
+  const [openReportId, setOpenReportId] = useState<string | null>(initialReportId ?? null);
+  const openAuthor = useOpenAuthor();
   const [submitted, setSubmitted] = useState(false);
 
   const isPoster = currentUserId === item.finder_id;
@@ -655,102 +821,166 @@ function OwnershipActionSection({
   if (isLost) {
     if (isPoster) {
       if (reportsForOwner.length === 0) return null;
-      return (
-        <div className="flex flex-col gap-4">
-          <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Reports from finders ({reportsForOwner.length})</p>
-          <div className="flex flex-col gap-4">
-            {reportsForOwner.map(report => (
-              <div key={report.id} className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold" style={{ color: "#2C1414" }}>{report.responder_name} found your item</span>
-                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
-                    {report.status.replace("_", " ")}
-                  </span>
-                </div>
-                {report.note && <p className="text-xs" style={{ color: "#6B3A3A" }}>Finder note: {report.note}</p>}
-                {report.status === "awaiting_owner" && (
-                  <form
-                    onSubmit={e => {
-                      e.preventDefault();
-                      const filled = report.answers.map(a => ({ ...a, answer: (ownerAnswers[a.question_id] ?? "").trim() }));
-                      if (filled.some(a => !a.answer)) return;
-                      onOwnerAnswer?.(report.id, filled, ownerReplyNote);
-                    }}
-                    className="flex flex-col gap-3"
-                  >
-                    {report.answers.map((a, i) => (
-                      <div key={a.question_id}>
-                        <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</label>
-                        <input
-                          type="text"
-                          required
-                          value={ownerAnswers[a.question_id] ?? ""}
-                          onChange={ev => setOwnerAnswers(prev => ({ ...prev, [a.question_id]: ev.target.value }))}
-                          placeholder="Your answer"
-                          className={inputCls}
-                        />
-                      </div>
-                    ))}
-                    <div>
-                      <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>Note to finder (optional)</label>
-                      <input
-                        type="text"
-                        value={ownerReplyNote}
-                        onChange={ev => setOwnerReplyNote(ev.target.value)}
-                        placeholder="e.g. Thanks! When can I pick it up?"
-                        className={inputCls}
-                      />
-                    </div>
-                    <button type="submit" className={btnPrimary + " mt-1 self-start text-xs py-2"}>
-                      Submit answers
-                    </button>
-                  </form>
-                )}
-                {report.status === "answered" && (
-                  <p className="text-xs font-medium mt-1" style={{ color: "#9A7070" }}>
-                    Answers submitted. Waiting for {report.responder_name} to review.
-                  </p>
-                )}
-                {report.status === "approved" && (
-                  <p className="text-xs font-semibold" style={{ color: "#9A3F3F" }}>
-                    {report.responder_name} approved you
-                  </p>
-                )}
+      const openReport = reportsForOwner.find(r => r.id === openReportId);
+
+      // One opened form: questions as text with answer fields (or read-only once answered).
+      if (openReport) {
+        const report = openReport;
+        return (
+          <div className="flex flex-col gap-3">
+            <button type="button" onClick={() => setOpenReportId(null)} className="inline-flex items-center gap-1.5 self-start text-xs font-medium hover:opacity-70" style={{ color: "#6B3A3A" }}>
+              <IconArrowLeft /> All forms
+            </button>
+            <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => openAuthor(report.responder_id, report.responder_name)}
+                  aria-label={`Open ${report.responder_name}'s profile`}
+                  className="shrink-0 hover:opacity-80"
+                >
+                  <Avatar id={report.responder_id} name={report.responder_name} size={32} />
+                </button>
+                <p className="text-sm font-semibold min-w-0" style={{ color: "#2C1414" }}>
+                  <button type="button" onClick={() => openAuthor(report.responder_id, report.responder_name)} className="hover:underline">
+                    {report.responder_name}
+                  </button>
+                  's verification form
+                </p>
               </div>
-            ))}
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
+                {report.status.replace("_", " ")}
+              </span>
+            </div>
+            {report.note && (
+              <p className="text-sm" style={{ color: "#6B3A3A" }}>
+                <span className="font-medium" style={{ color: "#2C1414" }}>Finder's note:</span> {report.note}
+              </p>
+            )}
+            {report.status === "awaiting_owner" ? (
+              <form
+                onSubmit={e => {
+                  e.preventDefault();
+                  const filled = report.answers.map(a => ({ ...a, answer: (ownerAnswers[`${report.id}:${a.question_id}`] ?? "").trim() }));
+                  if (filled.some(a => !a.answer)) return;
+                  const reply = ownerAnswers[`${report.id}:note`] ?? "";
+                  // No questions (older reports): the reply answers the finder's note, so it's required.
+                  if (filled.length === 0 && !reply.trim()) return;
+                  onOwnerAnswer?.(report.id, filled, reply);
+                }}
+                className="flex flex-col gap-4"
+              >
+                {report.answers.map((a, i) => (
+                  <div key={a.question_id} className="flex flex-col gap-1.5">
+                    <p className="text-sm font-medium" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</p>
+                    <input
+                      type="text"
+                      required
+                      aria-label={`Answer to question ${i + 1}`}
+                      value={ownerAnswers[`${report.id}:${a.question_id}`] ?? ""}
+                      onChange={ev => setOwnerAnswers(prev => ({ ...prev, [`${report.id}:${a.question_id}`]: ev.target.value }))}
+                      placeholder="Your answer"
+                      className={inputCls + " sm:w-2/3"}
+                    />
+                  </div>
+                ))}
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-sm font-medium" style={{ color: "#2C1414" }}>
+                    {report.answers.length === 0 ? "Your answer" : "Note to finder (optional)"}
+                  </p>
+                  <input
+                    type="text"
+                    required={report.answers.length === 0}
+                    aria-label={report.answers.length === 0 ? "Your answer" : "Note to finder"}
+                    value={ownerAnswers[`${report.id}:note`] ?? ""}
+                    onChange={ev => setOwnerAnswers(prev => ({ ...prev, [`${report.id}:note`]: ev.target.value }))}
+                    placeholder={report.answers.length === 0 ? "Answer the finder's question" : "e.g. Thanks! When can I pick it up?"}
+                    className={inputCls + " sm:w-2/3"}
+                  />
+                </div>
+                <button type="submit" className={btnPrimary + " self-start"}>Submit answers</button>
+              </form>
+            ) : (
+              <>
+                <p className="text-xs" style={{ color: "#6B3A3A" }}>
+                  {report.status === "answered" ? `Answers submitted. Waiting for ${report.responder_name} to review.`
+                    : report.status === "approved" ? `${report.responder_name} approved you.`
+                    : `${report.responder_name} didn't approve these answers.`}
+                </p>
+                <SubmittedAnswers answers={report.answers} emptyAnswerText="(no answer)" noteLabel="" ownerNote={report.owner_note} />
+              </>
+            )}
+            </div>
           </div>
+        );
+      }
+
+      // The list: one rectangular card per verification form received.
+      return (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Verification forms ({reportsForOwner.length})</p>
+          {reportsForOwner.map(report => {
+            const waiting = report.status === "awaiting_owner";
+            const n = report.answers.length;
+            return (
+              <button
+                key={report.id}
+                type="button"
+                onClick={() => setOpenReportId(report.id)}
+                className="w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 transition-colors hover:bg-[#FBF7F4]"
+                style={{ border: `1px solid ${waiting ? "#9A3F3F" : "#E6CFA9"}` }}
+              >
+                <Avatar id={report.responder_id} name={report.responder_name} size={32} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold truncate" style={{ color: "#2C1414" }}>{report.responder_name}</span>
+                  <span className="block text-xs" style={{ color: "#6B3A3A" }}>
+                    {n === 0 ? "Note only" : `${n} ${n === 1 ? "question" : "questions"}`} · {postedLabel(report.created_at)}
+                  </span>
+                </span>
+                <span
+                  className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0"
+                  style={waiting ? { background: "#9A3F3F", color: "#FFFFFF" } : { background: "#F5ECEC", color: "#9A3F3F" }}
+                >
+                  {waiting ? "Answer" : report.status.replace("_", " ")}
+                </span>
+              </button>
+            );
+          })}
         </div>
       );
     }
 
     if (myResponse) {
       return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 rounded-xl p-4 sm:p-5" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Your found report</p>
             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
               {myResponse.status.replace("_", " ")}
             </span>
           </div>
-          {myResponse.status === "awaiting_owner" && (
-            <p className="text-xs" style={{ color: "#6B3A3A" }}>Waiting for the owner to answer your verification questions…</p>
-          )}
+          <p className="text-xs" style={{ color: "#6B3A3A" }}>
+            {myResponse.status === "awaiting_owner" ? "Waiting for the owner to answer your verification questions…"
+              : myResponse.status === "answered" ? "The owner answered. Check their answers, then approve or reject."
+              : myResponse.status === "approved" ? "You approved this owner."
+              : "You rejected this claim."}
+          </p>
+          <SubmittedAnswers
+            answers={myResponse.answers}
+            emptyAnswerText="Waiting for the owner's answer"
+            note={myResponse.note}
+            noteLabel="Your note"
+            ownerNote={myResponse.owner_note}
+          />
           {myResponse.status === "answered" && (
-            <div className="flex flex-col gap-2 mt-2">
-              <p className="text-xs font-medium" style={{ color: "#2C1414" }}>Owner submitted answers:</p>
-              {myResponse.answers.map((a, i) => (
-                <div key={a.question_id} className="text-xs p-2 rounded bg-[#FBF9D1]">
-                  <p className="font-semibold text-[#2C1414]">{i + 1}. {a.prompt}</p>
-                  <p className="text-[#6B3A3A] mt-0.5">{a.answer}</p>
-                </div>
-              ))}
-              {myResponse.owner_note && <p className="text-xs text-[#6B3A3A]">Owner note: {myResponse.owner_note}</p>}
-              <div className="flex gap-2 mt-2">
+            <div className="flex flex-col gap-2 mt-1">
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => onApprove?.(myResponse.id)}
                   className="px-3 py-1.5 text-xs font-semibold rounded-lg"
-                  style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+                  style={{ background: "#9A3F3F", color: "#FFFFFF" }}
                 >
                   Approve owner
                 </button>
@@ -764,12 +994,6 @@ function OwnershipActionSection({
                 </button>
               </div>
             </div>
-          )}
-          {myResponse.status === "approved" && (
-            <p className="text-xs font-semibold" style={{ color: "#9A3F3F" }}>You approved this owner.</p>
-          )}
-          {myResponse.status === "rejected" && (
-            <p className="text-xs font-semibold" style={{ color: "#6B3A3A" }}>You rejected this claim.</p>
           )}
         </div>
       );
@@ -787,7 +1011,7 @@ function OwnershipActionSection({
               type="button"
               onClick={() => setIsOpen(true)}
               className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors"
-              style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+              style={{ background: "#9A3F3F", color: "#FFFFFF" }}
             >
               I found it
             </button>
@@ -872,6 +1096,14 @@ function OwnershipActionSection({
               : myResponse.status === "escalated" ? "The finder sent your claim to the admin office for review."
               : "Your claim was submitted and is under review."}
           </p>
+          <div className="mt-2">
+            <SubmittedAnswers
+              answers={myResponse.answers}
+              emptyAnswerText="(no answer)"
+              note={myResponse.note}
+              noteLabel="Your note"
+            />
+          </div>
         </div>
       );
     }
@@ -940,6 +1172,86 @@ function OwnershipActionSection({
     );
   }
 
+  // Case 3: Found post, poster — claims as cards, open one to review (Requirement 16.4).
+  const claims = responses.filter(r => r.item_id === item.id && r.kind !== "lost");
+  if (isPoster && claims.length > 0) {
+    const open = claims.find(r => r.id === openReportId);
+    const statusLabel = (st: ChallengeResponseStatus) => st === "escalated" ? "sent to staff" : st.replace("_", " ");
+    if (open) {
+      return (
+        <div className="flex flex-col gap-3">
+          <button type="button" onClick={() => setOpenReportId(null)} className="inline-flex items-center gap-1.5 self-start text-xs font-medium hover:opacity-70" style={{ color: "#6B3A3A" }}>
+            <IconArrowLeft /> All claims
+          </button>
+          <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <button type="button" onClick={() => openAuthor(open.responder_id, open.responder_name)} aria-label={`Open ${open.responder_name}'s profile`} className="shrink-0 hover:opacity-80">
+                  <Avatar id={open.responder_id} name={open.responder_name} size={32} />
+                </button>
+                <p className="text-sm font-semibold min-w-0" style={{ color: "#2C1414" }}>
+                  <button type="button" onClick={() => openAuthor(open.responder_id, open.responder_name)} className="hover:underline">
+                    {open.responder_name}
+                  </button>
+                  's claim
+                </p>
+              </div>
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0" style={{ background: "#F5ECEC", color: "#9A3F3F" }}>
+                {statusLabel(open.status)}
+              </span>
+            </div>
+            <SubmittedAnswers answers={open.answers} emptyAnswerText="(no answer)" note={open.note} noteLabel="Their note" />
+            {open.status === "pending" ? (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => onApprove?.(open.id)} className={btnPrimary}>Approve</button>
+                <button type="button" onClick={() => onReject?.(open.id)} className={btnSecondary}>Reject</button>
+                <button type="button" onClick={() => onEscalate?.(open.id)} className={btnSecondary}>Send to staff</button>
+              </div>
+            ) : (
+              <p className="text-xs" style={{ color: "#6B3A3A" }}>
+                {open.status === "approved" ? "You approved this claim. Pickup happens at the admin office."
+                  : open.status === "rejected" ? "You rejected this claim."
+                  : "You sent this claim to the admin office for review."}
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Claims ({claims.length})</p>
+        {claims.map(r => {
+          const waiting = r.status === "pending";
+          const n = r.answers.length;
+          return (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => setOpenReportId(r.id)}
+              className="w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 transition-colors hover:bg-[#FBF7F4]"
+              style={{ border: `1px solid ${waiting ? "#9A3F3F" : "#E6CFA9"}` }}
+            >
+              <Avatar id={r.responder_id} name={r.responder_name} size={32} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold truncate" style={{ color: "#2C1414" }}>{r.responder_name}</span>
+                <span className="block text-xs" style={{ color: "#6B3A3A" }}>
+                  {n === 0 ? "Note only" : `${n} ${n === 1 ? "answer" : "answers"}`} · {postedLabel(r.created_at)}
+                </span>
+              </span>
+              <span
+                className="text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0"
+                style={waiting ? { background: "#9A3F3F", color: "#FFFFFF" } : { background: "#F5ECEC", color: "#9A3F3F" }}
+              >
+                {waiting ? "Review" : statusLabel(r.status)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return null;
 }
 
@@ -949,7 +1261,7 @@ function PostDetail({
   item, comments, currentUserId, onBack, onAddComment, onAddReply, onClaim,
   onUpvote, upvoted, onRepost, reposted, repostCount, onShare,
   challengeResponses = [], onSubmitChallengeResponse, onSubmitFoundReport,
-  onOwnerAnswer, onApprove, onReject, initialActionOpen = false, claimBlockedUntil = null, isStaff = false,
+  onOwnerAnswer, onApprove, onReject, initialActionOpen = false, claimBlockedUntil = null, isStaff = false, initialReportId = null, onEscalate,
 }: {
   item: Item;
   comments: ItemComment[];
@@ -973,12 +1285,33 @@ function PostDetail({
   initialActionOpen?: boolean;
   claimBlockedUntil?: string | null; // set when the 3-claims-per-24h limit is reached
   isStaff?: boolean; // staff don't claim found items (Requirement 16.2)
+  initialReportId?: string | null;
+  onEscalate?: (responseId: string) => void;
 }) {
   const [commentDraft, setCommentDraft] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
-  const [showClaimForm, setShowClaimForm] = useState(initialActionOpen);
+  // What shows under the "N comments" row: the thread or the ownership form.
+  // Something in the ownership panel waiting on this user (Requirement 5.19b).
+  const needsAction = item.status !== "released" && (item.kind === "lost"
+    ? (currentUserId === item.finder_id
+        ? challengeResponses.some(r => r.kind === "lost" && r.status === "awaiting_owner")
+        : challengeResponses.some(r => r.kind === "lost" && r.responder_id === currentUserId && r.status === "answered"))
+    : currentUserId === item.finder_id && challengeResponses.some(r => r.kind !== "lost" && r.status === "pending"));
+  const [panel, setPanel] = useState<"comments" | "action">(initialActionOpen || needsAction ? "action" : "comments");
   const [claimAnswers, setClaimAnswers] = useState<Record<string, string>>({});
+  // Lost-post "I found it": two-step verification-form builder (Requirement 17.2).
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [reportQuestions, setReportQuestions] = useState<ChallengeQuestion[]>([]);
+  function openBuilder() {
+    setReportQuestions([sampleQuestion()]);
+    setBuilderOpen(true);
+  }
+  const finalQuestions = cleanQuestions(reportQuestions);
+  function cancelBuilder() {
+    setBuilderOpen(false);
+    setReportQuestions([]);
+    setClaimNote("");
+  }
   const [claimNote, setClaimNote] = useState("");
   const [claimSubmitted, setClaimSubmitted] = useState(false);
   const openAuthor = useOpenAuthor();
@@ -988,8 +1321,20 @@ function PostDetail({
   const myResponse = challengeResponses.find(r => r.responder_id === currentUserId);
   const hasOwnerReports = item.kind === "lost" && currentUserId === item.finder_id &&
     challengeResponses.some(r => r.kind === "lost");
+  // Found post, poster: claims to review (Requirement 16.4).
+  const hasClaims = item.kind !== "lost" && currentUserId === item.finder_id &&
+    challengeResponses.some(r => r.kind !== "lost");
   const canStartAction = item.status !== "released" && currentUserId !== item.finder_id && !myResponse &&
     !(isStaff && item.kind !== "lost");
+  // The document icon's panel: a new claim/report form, or the status/review of
+  // an existing one (Requirement 5.19a).
+  const hasFlow = item.status !== "released" && (!!myResponse || hasOwnerReports || hasClaims);
+  const showForm = panel === "action" && canStartAction;
+  const showFlow = panel === "action" && !canStartAction && hasFlow;
+  const showComments = !showForm && !showFlow;
+  const actionLabel = hasClaims ? "Claims" : hasOwnerReports ? "Reports from finders"
+    : myResponse ? (item.kind === "lost" ? "Your found report" : "Your ownership claim")
+    : item.kind === "lost" ? "I found it" : "I lost it";
 
   // A private comment thread is visible only to the post's author and the
   // thread's author.
@@ -1011,9 +1356,9 @@ function PostDetail({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "#FBF9D1" }}>
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "#FFFFFF" }}>
       {/* Top bar */}
-      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FBF9D1", borderBottom: "1px solid #C1856D" }}>
+      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FFFFFF", borderBottom: "1px solid #C1856D" }}>
         <button onClick={onBack} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
           <IconArrowLeft /> Back
         </button>
@@ -1043,7 +1388,6 @@ function PostDetail({
                     >
                       {item.kind === "lost" ? "Lost" : "Found"}
                     </span>
-                    <StatusBadge status={item.status} />
                     {item.pending_sync && <SyncChip />}
                   </div>
                   <span className="text-xs" style={{ color: "#9A7070" }}>{postedLabel(item.created_at)}</span>
@@ -1052,7 +1396,7 @@ function PostDetail({
             </div>
 
             <h1 className="mt-3 font-semibold text-xl leading-snug" style={{ color: "#2C1414" }}>{item.title}</h1>
-            {item.description && <p className="mt-2 text-sm leading-relaxed" style={{ color: "#2C1414" }}>{item.description}</p>}
+            {item.description && <p className="mt-2 text-sm leading-relaxed whitespace-pre-line" style={{ color: "#2C1414" }}>{item.description}</p>}
             {item.image_url && (
               <img src={item.image_url} alt={item.title} className="mt-3 w-full max-h-[28rem] object-cover rounded-xl" />
             )}
@@ -1080,7 +1424,7 @@ function PostDetail({
                   canStartAction ? (
                     item.kind === "lost" ? (
                       <button
-                        onClick={() => setShowClaimForm(true)}
+                        onClick={() => setPanel("action")}
                         className="ml-auto px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
                         style={{ background: "transparent", border: "1px solid #C1856D", color: "#9A3F3F" }}
                         onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#F5ECEC"; }}
@@ -1090,7 +1434,7 @@ function PostDetail({
                       </button>
                     ) : (
                       <button
-                        onClick={() => setShowClaimForm(true)}
+                        onClick={() => setPanel("action")}
                         className="ml-auto px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
                         style={{ background: "transparent", border: "1px solid #C1856D", color: "#9A3F3F" }}
                         onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "#F5ECEC"; }}
@@ -1106,59 +1450,61 @@ function PostDetail({
 
           </div>{/* end post block */}
 
-          {(myResponse || hasOwnerReports) && (
-            <div className="mb-4 pb-4" style={{ borderBottom: "1px solid #C1856D" }}>
-              <OwnershipActionSection
-                item={item}
-                currentUserId={currentUserId}
-                responses={challengeResponses}
-                onOwnerAnswer={onOwnerAnswer}
-                onApprove={onApprove}
-                onReject={onReject}
-              />
-            </div>
-          )}
-
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>
+            {/* Comment count shows the thread; the document icon shows the ownership form. */}
+            <button
+              type="button"
+              onClick={() => setPanel("comments")}
+              aria-pressed={showComments}
+              className="text-sm font-semibold hover:opacity-70 transition-opacity"
+              style={{ color: showComments ? "#2C1414" : "#6B3A3A" }}
+            >
               {count} {count === 1 ? "comment" : "comments"}
-            </p>
-            {/* Document icon — opens the ownership form (I lost it / I found it) */}
-            {canStartAction && (
+            </button>
+            {(canStartAction || hasFlow) && (
               <button
                 type="button"
-                onClick={() => setShowClaimForm(v => !v)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full transition-colors"
-                style={{ background: "transparent", border: "1px solid #C1856D", color: showClaimForm ? "#9A3F3F" : "#6B3A3A" }}
-                aria-label={item.kind === "lost" ? "I found it" : "I lost it"}
-                title={item.kind === "lost" ? "I found it" : "I lost it"}
+                onClick={() => setPanel(p => p === "action" ? "comments" : "action")}
+                aria-pressed={!showComments}
+                className="inline-flex items-center justify-center w-9 h-9 -mr-2 rounded-md hover:opacity-70 transition-opacity"
+                style={{ color: showComments ? "#6B3A3A" : "#9A3F3F" }}
+                aria-label={needsAction ? `${actionLabel} (needs your response)` : actionLabel}
+                title={actionLabel}
               >
-                <IconDocument />
-                {item.kind === "lost" ? "I found it" : "I lost it"}
+                <span className="relative inline-flex">
+                  <IconDocument />
+                  {needsAction && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: "#9A3F3F", boxShadow: "0 0 0 2px #FFFFFF" }} aria-hidden="true" />
+                  )}
+                </span>
               </button>
             )}
           </div>
 
           {/* Plain ownership form (no card) shown when doc icon is clicked */}
-          {canStartAction && showClaimForm && !claimSubmitted && item.kind !== "lost" && claimBlockedUntil && (
+          {showForm && !claimSubmitted && item.kind !== "lost" && claimBlockedUntil && (
             <p className="text-sm mb-4 pb-4" style={{ color: "#9A3F3F", borderBottom: "1px solid #C1856D" }}>
               You've made 3 claims in the last 24 hours. You can claim again after {new Date(claimBlockedUntil).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.
             </p>
           )}
-          {canStartAction && showClaimForm && !claimSubmitted && !(item.kind !== "lost" && claimBlockedUntil) && (
+          {showForm && !claimSubmitted && item.kind === "lost" && !builderOpen && (
+            <CreateFormCard onOpen={openBuilder} className="mb-4" />
+          )}
+          {showForm && !claimSubmitted && !(item.kind !== "lost" && claimBlockedUntil) && (item.kind !== "lost" || builderOpen) && (
             <form
               onSubmit={e => {
                 e.preventDefault();
                 if (item.kind === "lost") {
-                  onSubmitFoundReport?.(item, reportQuestions, claimNote);
+                  if (finalQuestions.length === 0) return;
+                  onSubmitFoundReport?.(item, finalQuestions, claimNote);
                 } else {
                   const payload = (item.challenge ?? []).map(q => ({ question_id: q.id, prompt: q.prompt, answer: (claimAnswers[q.id] ?? "").trim() }));
                   onSubmitChallengeResponse?.(item.id, payload, claimNote);
                 }
                 setClaimSubmitted(true);
               }}
-              className="flex flex-col gap-4 mb-4 pb-4"
-              style={{ borderBottom: "1px solid #C1856D" }}
+              className={item.kind === "lost" ? "flex flex-col gap-4 mb-4 rounded-xl p-4 sm:p-5" : "flex flex-col gap-4 mb-4 pb-4"}
+              style={item.kind === "lost" ? { border: "1px solid #E6CFA9", background: "#FFFFFF" } : { borderBottom: "1px solid #C1856D" }}
             >
               {item.kind !== "lost" && (item.challenge ?? []).map((q, i) => (
                 <div key={q.id}>
@@ -1167,32 +1513,9 @@ function PostDetail({
                 </div>
               ))}
               {item.kind === "lost" && (
-                <div className="flex flex-col gap-2">
-                  <p className="text-sm font-medium" style={{ color: "#2C1414" }}>Questions only the real owner can answer</p>
-                  {reportQuestions.map((q, i) => (
-                    <div key={q.id} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        required
-                        autoFocus
-                        placeholder={`Question ${i + 1} (e.g. What color is the keychain?)`}
-                        value={q.prompt}
-                        onChange={ev => setReportQuestions(list => list.map(x => x.id === q.id ? { ...x, prompt: ev.target.value } : x))}
-                        className={inputCls}
-                      />
-                      <button type="button" onClick={() => setReportQuestions(list => list.filter(x => x.id !== q.id))} aria-label="Remove question" style={{ color: "#9A3F3F" }}>
-                        <IconX />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setReportQuestions(list => [...list, { id: `q${Date.now()}${list.length}`, prompt: "" }])}
-                    className="text-xs font-semibold self-start hover:underline"
-                    style={{ color: "#9A3F3F" }}
-                  >
-                    + Add question
-                  </button>
+                <div className="flex flex-col gap-4">
+                  <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Verification form</p>
+                  <QuestionBuilder questions={reportQuestions} onChange={setReportQuestions} />
                 </div>
               )}
               <div>
@@ -1202,18 +1525,39 @@ function PostDetail({
                 <textarea rows={3} className={inputCls + " resize-none"} value={claimNote} onChange={ev => setClaimNote(ev.target.value)} placeholder={item.kind === "lost" ? "Where you found it, where it is now…" : "Any additional details…"} />
               </div>
               <div className="flex gap-2">
-                <button type="submit" className={btnPrimary}>{item.kind === "lost" ? "Send to owner" : "Submit claim"}</button>
-                <button type="button" onClick={() => setShowClaimForm(false)} className={btnSecondary}>Cancel</button>
+                <button
+                  type="submit"
+                  disabled={item.kind === "lost" && finalQuestions.length === 0}
+                  className={btnPrimary + " disabled:opacity-40 disabled:cursor-not-allowed"}
+                >
+                  {item.kind === "lost" ? "Send to owner" : "Submit claim"}
+                </button>
+                <button type="button" onClick={() => item.kind === "lost" ? cancelBuilder() : setPanel("comments")} className={btnSecondary}>Cancel</button>
               </div>
             </form>
           )}
-          {showClaimForm && claimSubmitted && !myResponse && (
+          {showForm && claimSubmitted && !myResponse && (
             <p className="text-sm font-medium mb-4 pb-4" style={{ color: "#9A3F3F", borderBottom: "1px solid #C1856D" }}>
               {item.kind === "lost" ? "Sent to the owner — you'll be notified when they respond." : "Claim submitted!"}
             </p>
           )}
 
-          {visibleComments.length === 0 ? (
+          {showFlow && (
+            <div className="mb-4">
+              <OwnershipActionSection
+                item={item}
+                currentUserId={currentUserId}
+                responses={challengeResponses}
+                initialReportId={initialReportId}
+                onEscalate={onEscalate}
+                onOwnerAnswer={onOwnerAnswer}
+                onApprove={onApprove}
+                onReject={onReject}
+              />
+            </div>
+          )}
+
+          {showComments && (visibleComments.length === 0 ? (
             <p className="text-sm py-6 text-center" style={{ color: "#9A7070" }}>No comments yet. Be the first to comment.</p>
           ) : (
             <div className="flex flex-col gap-3">
@@ -1221,12 +1565,12 @@ function PostDetail({
                 <CommentThread key={c.id} node={c} depth={0} onAddReply={onAddReply} />
               ))}
             </div>
-          )}
+          ))}
         </div>
       </div>
 
       {/* Sticky composer with a Public/Private toggle */}
-      <form onSubmit={submitComment} className="flex flex-col gap-2 p-4 shrink-0" style={{ borderTop: "1px solid #C1856D", background: "#FBF9D1" }}>
+      <form onSubmit={submitComment} className="flex flex-col gap-2 p-4 shrink-0" style={{ borderTop: "1px solid #C1856D", background: "#FFFFFF" }}>
         <div className="max-w-2xl mx-auto w-full flex flex-col gap-2">
           <div className="flex gap-1">
             {(["public", "private"] as const).map(v => (
@@ -1236,7 +1580,7 @@ function PostDetail({
                 onClick={() => setVisibility(v)}
                 className="px-3 py-1 text-xs font-semibold rounded-full transition-colors"
                 style={visibility === v
-                  ? { background: "#9A3F3F", color: "#FBF9D1" }
+                  ? { background: "#9A3F3F", color: "#FFFFFF" }
                   : { background: "#F5ECEC", color: "#6B3A3A" }}
               >
                 {v === "public" ? "Public" : "Private to author"}
@@ -1250,9 +1594,9 @@ function PostDetail({
               onChange={e => setCommentDraft(e.target.value)}
               placeholder={visibility === "private" ? "Private note to the author…" : "Write a comment…"}
               className="flex-1 px-4 py-2 text-sm rounded-full border focus:outline-none focus:ring-2"
-              style={{ background: "#FBF9D1", borderColor: "#C1856D", color: "#2C1414" }}
+              style={{ background: "#FFFFFF", borderColor: "#C1856D", color: "#2C1414" }}
             />
-            <button type="submit" disabled={!commentDraft.trim()} className="px-4 py-2 text-sm font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+            <button type="submit" disabled={!commentDraft.trim()} className="px-4 py-2 text-sm font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FFFFFF" }}>
               Post
             </button>
           </div>
@@ -1317,9 +1661,9 @@ function CommentThread({ node, depth, onAddReply }: {
               placeholder={`Reply to ${node.author_name}…`}
               autoFocus
               className="flex-1 px-3 py-1.5 text-sm rounded-full border focus:outline-none focus:ring-2"
-              style={{ background: "#FBF9D1", borderColor: "#C1856D", color: "#2C1414" }}
+              style={{ background: "#FFFFFF", borderColor: "#C1856D", color: "#2C1414" }}
             />
-            <button type="submit" disabled={!draft.trim()} className="px-3 py-1.5 text-xs font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+            <button type="submit" disabled={!draft.trim()} className="px-3 py-1.5 text-xs font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: "#9A3F3F", color: "#FFFFFF" }}>
               Reply
             </button>
           </form>
@@ -1360,7 +1704,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
 
   return (
     <div className="flex flex-col gap-3 py-4 transition-colors"
-      style={{ borderBottom: "1px solid #C1856D" }}>
+      style={{ borderBottom: "1px solid #E5E5E5" }}>
 
       {/* Content — clicking opens the full-screen post detail (Reddit-style) */}
       <div
@@ -1373,7 +1717,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
         <div className="flex items-center gap-1.5">
           <AuthorLink id={item.finder_id} name={item.finder_name || userName(item.finder_id)} size={20} textClass="text-xs font-semibold" />
           {useIsVerified(item.finder_id) && <VerificationBadge size={13} />}
-          <span className="text-xs" style={{ color: "#9A7070" }}>· {postedLabel(item.created_at)}</span>
+          <span className="text-xs" style={{ color: "#6B7280" }}>· {postedLabel(item.created_at)}</span>
           <span
             className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
             style={item.kind === "lost"
@@ -1382,15 +1726,14 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
           >
             {item.kind === "lost" ? "Lost" : "Found"}
           </span>
-          <StatusBadge status={item.status} />
           {item.pending_sync && <SyncChip />}
         </div>
 
-        <h3 className="text-base font-semibold leading-snug" style={{ color: "#2C1414" }}>{item.title}</h3>
-        <p className="text-sm leading-relaxed" style={{ color: "#6B3A3A" }}>{item.description}</p>
+        <h3 className="text-xl font-semibold leading-snug" style={{ color: "#111111" }}>{item.title}</h3>
+        {item.description && <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "#4B5563" }}>{item.description}</p>}
 
         <div className="flex flex-wrap gap-x-4 gap-y-1">
-          <div className="flex items-center gap-1.5 text-xs" style={{ color: "#6B3A3A" }}>
+          <div className="flex items-center gap-1.5 text-xs" style={{ color: "#6B7280" }}>
             <IconMapPin /><span className="truncate">{item.location_found}</span>
           </div>
         </div>
@@ -1423,7 +1766,7 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
             <div className="ml-auto flex items-center gap-2">
               <span
                 className="flex items-center gap-1 text-xs font-medium"
-                style={{ color: "#6B3A3A" }}
+                style={{ color: "#6B7280" }}
                 title={`${challengeResponseCount} people responded`}
               >
                 <IconUsers />
@@ -1432,20 +1775,20 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
               <button
                 onClick={() => lostFlow.onFoundThis(item)}
                 className="px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
-                style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
-                onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
+                style={{ background: "#111111", color: "#FFFFFF" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#333333")}
+                onMouseLeave={e => (e.currentTarget.style.background = "#111111")}
               >
                 I found it
               </button>
             </div>
           ) :
           // "Prove it's yours" applies only to FOUND items.
-          item.kind !== "lost" && role !== "staff" && onClaim && item.status !== "released" ? (
+          item.kind !== "lost" && role !== "staff" && onClaim && item.status !== "released" && item.finder_id !== lostFlow.currentUserId ? (
             <div className="ml-auto flex items-center gap-2">
               <span
                 className="flex items-center gap-1 text-xs font-medium"
-                style={{ color: "#6B3A3A" }}
+                style={{ color: "#6B7280" }}
                 title={`${challengeResponseCount} responded`}
               >
                 <IconUsers />
@@ -1454,9 +1797,9 @@ function ItemCard({ item, onClaim, onUpvote, upvoted, onRepost, reposted, repost
               <button
                 onClick={() => onClaim(item)}
                 className="px-2.5 py-1 text-xs font-semibold rounded-md transition-colors"
-                style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
-                onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
+                style={{ background: "#111111", color: "#FFFFFF" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#333333")}
+                onMouseLeave={e => (e.currentTarget.style.background = "#111111")}
               >
                 I lost it
               </button>
@@ -1483,7 +1826,7 @@ function QuotedItem({ item }: { item: Item }) {
       type="button"
       onClick={() => openDetail(item)}
       className="w-full text-left rounded-lg p-3 flex gap-3 transition-shadow hover:shadow-md"
-      style={{ background: "#FBF9D1", border: "1px solid #C1856D" }}
+      style={{ background: "#FFFFFF", border: "1px solid #C1856D" }}
     >
       <div className="flex flex-col gap-1 flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
@@ -1522,9 +1865,9 @@ function RepostCard({ repost, item, onRemove, actions }: {
   };
 }) {
   return (
-    <div className="py-4 flex flex-col gap-2" style={{ borderBottom: "1px solid #C1856D" }}>
+    <div className="py-4 flex flex-col gap-2" style={{ borderBottom: "1px solid #E5E5E5" }}>
       <div className="flex items-center gap-1.5">
-        <span style={{ color: "#9A3F3F" }}><IconRepost /></span>
+        <span style={{ color: "#9A3F3F" }}><IconRepost size={14} /></span>
         <AuthorLink id={repost.user_id} name={repost.user_name} size={20} textClass="text-xs font-semibold" />
         <span className="text-xs whitespace-nowrap" style={{ color: "#9A7070" }}>reposted · {postedLabel(repost.created_at)}</span>
         {onRemove && (
@@ -1570,7 +1913,7 @@ function RepostDialog({ item, alreadyReposted, onClose, onRepost, onRemove }: {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative rounded-2xl shadow-xl w-full max-w-md flex flex-col" style={{ background: "#FBF9D1" }}>
+      <div className="relative rounded-2xl shadow-xl w-full max-w-md flex flex-col" style={{ background: "#FFFFFF" }}>
         <div className="flex items-center justify-between p-5" style={{ borderBottom: "1px solid #C1856D" }}>
           <h2 className="text-base font-semibold" style={{ color: "#2C1414" }}>{alreadyReposted ? "Edit your repost" : "Repost to your timeline"}</h2>
           <button onClick={onClose} style={{ color: "#9A7070" }}><IconX /></button>
@@ -1639,9 +1982,9 @@ function ChallengeModal({ item, onClose, onSubmit }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto scroll-area" style={{ background: "#FBF9D1" }}>
+    <div className="fixed inset-0 z-50 overflow-y-auto scroll-area" style={{ background: "#FFFFFF" }}>
       {/* Page header */}
-      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14" style={{ background: "#FBF9D1", borderBottom: "1px solid #C1856D" }}>
+      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14" style={{ background: "#FFFFFF", borderBottom: "1px solid #C1856D" }}>
         <button onClick={onClose} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
           <IconArrowLeft /> Back
         </button>
@@ -1721,366 +2064,16 @@ function ChallengeModal({ item, onClose, onSubmit }: {
 
 // ─── Ownership Challenge: finder responses / analytics (Requirement 16) ─────────
 
-function ChallengeResponsesModal({ item, responses, verifiedIds, onClose, onApprove, onReject, onEscalate }: {
-  item: Item;
-  responses: ChallengeResponse[];
-  verifiedIds: Set<string>;
-  onClose: () => void;
-  onApprove: (responseId: string) => void;
-  onReject: (responseId: string) => void;
-  onEscalate: (responseId: string) => void;
-}) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const statusStyle: Record<ChallengeResponseStatus, { label: string; bg: string; color: string }> = {
-    pending: { label: "Pending", bg: "#FDF3EC", color: "#7A3A1A" },
-    approved: { label: "Approved", bg: "#F2EBE5", color: "#5C2020" },
-    rejected: { label: "Rejected", bg: "#F5ECEC", color: "#9A3F3F" },
-    escalated: { label: "Sent to staff", bg: "#F5ECEC", color: "#9A3F3F" },
-    awaiting_owner: { label: "Awaiting owner", bg: "#FDF3EC", color: "#7A3A1A" },
-    answered: { label: "Answered", bg: "#F2EBE5", color: "#5C2020" },
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Challenge responses">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full sm:max-w-lg max-h-[85vh] sm:max-h-[80vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-xl" style={{ background: "#FBF9D1" }} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: "1px solid #C1856D" }}>
-          <div className="min-w-0">
-            <h3 className="font-semibold text-sm truncate" style={{ color: "#2C1414" }}>Responses</h3>
-            <p className="text-xs truncate" style={{ color: "#9A7070" }}>{responses.length} on “{item.title}”</p>
-          </div>
-          <button onClick={onClose} aria-label="Close" style={{ color: "#9A7070" }}><IconX /></button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto scroll-area px-4 py-3">
-          {responses.length === 0 ? (
-            <p className="text-sm py-8 text-center" style={{ color: "#9A7070" }}>No one has answered your challenge yet.</p>
-          ) : (
-            <div className="flex flex-col gap-4">
-              {responses.map(r => {
-                const s = statusStyle[r.status];
-                return (
-                  <div key={r.id} className="rounded-xl p-4" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Avatar id={r.responder_id} name={r.responder_name} size={26} />
-                        <span className="text-sm font-semibold" style={{ color: "#2C1414" }}>{r.responder_name}</span>
-                        {verifiedIds.has(r.responder_id) && <VerificationBadge size={12} />}
-                      </div>
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: s.bg, color: s.color }}>{s.label}</span>
-                    </div>
-
-                    <div className="mt-3 flex flex-col gap-2">
-                      {r.answers.map(a => (
-                        <div key={a.question_id} className="rounded-lg p-2.5" style={{ background: "#FBF9D1", border: "1px solid #C1856D" }}>
-                          <p className="text-xs font-medium" style={{ color: "#6B3A3A" }}>{a.prompt}</p>
-                          <p className="text-sm mt-0.5" style={{ color: "#2C1414" }}>{a.answer}</p>
-                        </div>
-                      ))}
-                      {r.note && (
-                        <div className="rounded-lg p-2.5" style={{ background: "#F5ECEC", border: "1px solid #C1856D" }}>
-                          <p className="text-xs font-medium" style={{ color: "#6B3A3A" }}>Note</p>
-                          <p className="text-sm mt-0.5" style={{ color: "#2C1414" }}>{r.note}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {r.status === "pending" && (
-                      <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: "1px solid #C1856D" }}>
-                        <button onClick={() => onApprove(r.id)} className="flex-1 min-w-[6rem] py-2 text-xs font-semibold rounded-lg" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>Approve</button>
-                        <button onClick={() => onReject(r.id)} className="flex-1 min-w-[6rem] py-2 text-xs font-semibold rounded-lg" style={{ border: "1px solid #C1856D", color: "#9A3F3F", background: "transparent" }}>Reject</button>
-                        <button onClick={() => onEscalate(r.id)} className="flex-1 min-w-[6rem] py-2 text-xs font-semibold rounded-lg" style={{ border: "1px solid #C1856D", color: "#6B3A3A", background: "transparent" }}>Send to staff</button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Lost-post responses (owner analytics) ──────────────────────────────────────
-// Lists the "I found this" reports on the owner's lost post; tapping one opens
-// the LostFlowModal (owner-answer or view outcome).
-function LostResponsesModal({ item, reports, verifiedIds, onClose, onOpenReport }: {
-  item: Item;
-  reports: ChallengeResponse[];
-  verifiedIds: Set<string>;
-  onClose: () => void;
-  onOpenReport: (reportId: string) => void;
-}) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const statusLabel: Record<string, { label: string; bg: string; color: string }> = {
-    awaiting_owner: { label: "Needs your answer", bg: "#FDF3EC", color: "#7A3A1A" },
-    answered: { label: "Awaiting finder", bg: "#F2EBE5", color: "#5C2020" },
-    approved: { label: "Approved", bg: "#F2EBE5", color: "#5C2020" },
-    rejected: { label: "Rejected", bg: "#F5ECEC", color: "#9A3F3F" },
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Responses">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full sm:max-w-lg max-h-[85vh] sm:max-h-[80vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-xl" style={{ background: "#FBF9D1" }} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: "1px solid #C1856D" }}>
-          <div className="min-w-0">
-            <h3 className="font-semibold text-sm truncate" style={{ color: "#2C1414" }}>People who found this</h3>
-            <p className="text-xs truncate" style={{ color: "#9A7070" }}>{reports.length} on “{item.title}”</p>
-          </div>
-          <button onClick={onClose} aria-label="Close" style={{ color: "#9A7070" }}><IconX /></button>
-        </div>
-        <div className="flex-1 overflow-y-auto scroll-area px-4 py-3">
-          {reports.length === 0 ? (
-            <p className="text-sm py-8 text-center" style={{ color: "#9A7070" }}>No one has responded yet.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {reports.map(r => {
-                const s = statusLabel[r.status] ?? { label: r.status, bg: "#F5ECEC", color: "#6B3A3A" };
-                return (
-                  <button
-                    key={r.id}
-                    onClick={() => onOpenReport(r.id)}
-                    className="text-left rounded-xl p-4 flex items-center justify-between gap-2 transition-shadow hover:shadow-md"
-                    style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Avatar id={r.responder_id} name={r.responder_name} size={26} />
-                      <span className="text-sm font-semibold truncate" style={{ color: "#2C1414" }}>{r.responder_name}</span>
-                      {verifiedIds.has(r.responder_id) && <VerificationBadge size={12} />}
-                    </div>
-                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: s.bg, color: s.color }}>{s.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── "I found this" flow (lost posts, Requirement 17) ───────────────────────────
-// Full-screen. Three modes derived from the current user + existing report:
-//   author        — finder writes questions + note (no report yet)
-//   owner-answer   — the lost post's owner fills the finder's questions
-//   finder-review  — finder reads the owner's answers, approves/rejects
-function LostFlowModal({ item, currentUserId, report, onClose, onSubmitReport, onOwnerAnswer, onApprove, onReject }: {
-  item: Item;
-  currentUserId: string;
-  report?: ChallengeResponse; // existing report for (this item, this finder) if any
-  onClose: () => void;
-  onSubmitReport: (item: Item, questions: ChallengeQuestion[], note: string) => void;
-  onOwnerAnswer: (responseId: string, answers: ChallengeAnswer[], ownerNote: string) => void;
-  onApprove: (responseId: string) => void;
-  onReject: (responseId: string) => void;
-}) {
-  const openDetail = useOpenDetail();
-  const isOwner = currentUserId === item.finder_id;
-  const mode: "author" | "owner-answer" | "finder-review" =
-    !report ? "author" : (isOwner && report.status === "awaiting_owner") ? "owner-answer" : "finder-review";
-
-  // author state
-  const [qs, setQs] = useState<ChallengeQuestion[]>([]);
-  const [note, setNote] = useState("");
-  // owner-answer state
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [ownerNote, setOwnerNote] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  function addQ() { setQs(v => [...v, { id: `q${Date.now()}${v.length}`, prompt: "" }]); }
-  function updateQ(id: string, prompt: string) { setQs(v => v.map(q => q.id === id ? { ...q, prompt } : q)); }
-  function removeQ(id: string) { setQs(v => v.filter(q => q.id !== id)); }
-
-  function submitAuthor(e: React.FormEvent) {
-    e.preventDefault();
-    onSubmitReport(item, qs, note);
-    setSubmitted(true);
-  }
-  function submitOwnerAnswers(e: React.FormEvent) {
-    e.preventDefault();
-    if (!report) return;
-    const filled = report.answers.map(a => ({ ...a, answer: (answers[a.question_id] ?? "").trim() }));
-    if (filled.some(a => !a.answer)) return;
-    onOwnerAnswer(report.id, filled, ownerNote);
-    setSubmitted(true);
-  }
-
-  const title =
-    mode === "author" ? "I found it" :
-    mode === "owner-answer" ? "Verify it's yours" :
-    isOwner ? "Your submission" :
-    "Review answers";
-
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "#FBF9D1" }}>
-      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FBF9D1", borderBottom: "1px solid #C1856D" }}>
-        <button onClick={onClose} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
-          <IconArrowLeft /> Back
-        </button>
-        <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>{title}</span>
-      </header>
-
-      <div className="flex-1 overflow-y-auto scroll-area">
-        <div className="max-w-lg mx-auto px-4 py-6">
-          {/* Item context — click to open the actual post */}
-          <button
-            type="button"
-            onClick={() => { onClose(); openDetail(item); }}
-            className="w-full text-left rounded-xl p-4 mb-6 flex items-start gap-3 transition-shadow hover:shadow-md"
-            style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}
-          >
-            {item.image_url && <img src={item.image_url} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />}
-            <div className="min-w-0">
-              <p className="font-semibold text-sm" style={{ color: "#2C1414" }}>{item.title}</p>
-              <p className="text-xs mt-0.5" style={{ color: "#6B3A3A" }}>
-                {mode === "author" && "Ask questions only the real owner can answer, then send it to them."}
-                {mode === "owner-answer" && "Someone found your item. Answer to prove it's yours."}
-                {mode === "finder-review" && (isOwner ? "Your answers to the finder's questions." : "The owner's answers to your questions.")}
-              </p>
-              <p className="text-xs mt-1 font-medium" style={{ color: "#9A3F3F" }}>View post →</p>
-            </div>
-          </button>
-
-          {submitted ? (
-            <div className="text-center py-12">
-              <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "#F2EBE5" }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9A3F3F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              </div>
-              <p className="font-semibold" style={{ color: "#2C1414" }}>{mode === "author" ? "Sent to the owner" : "Answers submitted"}</p>
-              <p className="mt-2 text-sm" style={{ color: "#6B3A3A" }}>You'll get a notification when there's an update.</p>
-              <button onClick={onClose} className={btnPrimary + " mt-6"}>Done</button>
-            </div>
-          ) : mode === "author" ? (
-            <form onSubmit={submitAuthor} className="flex flex-col gap-5">
-              <div>
-                <label className="block text-sm font-semibold mb-1" style={{ color: "#2C1414" }}>Verification questions</label>
-                <p className="text-xs mb-3" style={{ color: "#6B3A3A" }}>Ask something only the owner would know (e.g. "What's the lock-screen photo?", "Any stickers?").</p>
-                {qs.length > 0 && (
-                  <div className="flex flex-col gap-2 mb-2">
-                    {qs.map((q, i) => (
-                      <div key={q.id} className="flex items-center gap-2">
-                        <span className="text-xs font-semibold w-4 shrink-0" style={{ color: "#9A3F3F" }}>{i + 1}.</span>
-                        <input type="text" value={q.prompt} onChange={e => updateQ(q.id, e.target.value)} placeholder="Type a question…" className={inputCls + " flex-1"} />
-                        <button type="button" onClick={() => removeQ(q.id)} aria-label="Remove" className="shrink-0 p-1.5" style={{ color: "#9A7070" }}><IconX /></button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <button type="button" onClick={addQ} className={btnSecondary + " inline-flex items-center gap-1.5"}>
-                  <span className="text-base leading-none">+</span> Add question
-                </button>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Note to the owner (optional)</label>
-                <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} className={inputCls + " resize-none"} placeholder="Where you found it, how to reach you, etc." />
-              </div>
-              <button type="submit" className={btnPrimary + " w-full py-3"}>Send to owner</button>
-            </form>
-          ) : mode === "owner-answer" && report ? (
-            <form onSubmit={submitOwnerAnswers} className="flex flex-col gap-5">
-              {report.note && (
-                <div className="rounded-lg p-3 text-sm" style={{ background: "#F5ECEC", border: "1px solid #C1856D", color: "#2C1414" }}>
-                  <span className="font-semibold">Note from {report.responder_name}: </span>{report.note}
-                </div>
-              )}
-              {report.answers.map((a, i) => (
-                <div key={a.question_id}>
-                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt} <span style={{ color: "#9A3F3F" }}>*</span></label>
-                  <input type="text" value={answers[a.question_id] ?? ""} onChange={e => setAnswers(v => ({ ...v, [a.question_id]: e.target.value }))} className={inputCls} required />
-                </div>
-              ))}
-              <div>
-                <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Note to the finder (optional)</label>
-                <textarea value={ownerNote} onChange={e => setOwnerNote(e.target.value)} rows={3} className={inputCls + " resize-none"} placeholder="Thanks! When/where can I pick it up?" />
-              </div>
-              <button type="submit" className={btnPrimary + " w-full py-3"}>Submit answers</button>
-            </form>
-          ) : report ? (
-            <div className="flex flex-col gap-4">
-              {report.note && (
-                <div>
-                  <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Your note to the owner</label>
-                  <textarea value={report.note} readOnly rows={2} className={inputCls + " resize-none"} />
-                </div>
-              )}
-              {report.status === "awaiting_owner" ? (
-                <p className="text-sm py-8 text-center" style={{ color: "#9A7070" }}>Waiting for the owner to answer your questions…</p>
-              ) : (
-                <>
-                  {/* Same field layout as the answer form — question label above,
-                      the owner's answer shown in a read-only field. */}
-                  {report.answers.map((a, i) => (
-                    <div key={a.question_id}>
-                      <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>{i + 1}. {a.prompt}</label>
-                      <input type="text" value={a.answer || ""} readOnly className={inputCls} />
-                    </div>
-                  ))}
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Note from the owner</label>
-                    <textarea value={report.owner_note || "—"} readOnly rows={3} className={inputCls + " resize-none"} />
-                  </div>
-                  {report.status === "answered" && !isOwner ? (
-                    // Only the finder decides.
-                    <div className="flex gap-3 pt-2">
-                      <button onClick={() => { onApprove(report.id); onClose(); }} className="flex-1 py-2.5 text-sm font-semibold rounded-lg" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>Approve — it's them</button>
-                      <button onClick={() => { onReject(report.id); onClose(); }} className="flex-1 py-2.5 text-sm font-semibold rounded-lg" style={{ border: "1px solid #C1856D", color: "#9A3F3F", background: "transparent" }}>Reject</button>
-                    </div>
-                  ) : report.status === "answered" ? (
-                    // Owner is waiting on the finder's decision.
-                    <p className="text-sm font-semibold text-center py-2" style={{ color: "#9A7070" }}>
-                      Waiting for {report.responder_name} to review your answers…
-                    </p>
-                  ) : (
-                    // Outcome, phrased for whoever is viewing.
-                    <p className="text-sm font-semibold text-center py-2" style={{ color: "#9A3F3F" }}>
-                      {isOwner
-                        ? (report.status === "approved"
-                            ? `${report.responder_name} approved you`
-                            : `${report.responder_name} didn't approve this.`)
-                        : (report.status === "approved" ? "You approved this owner." : "You rejected this.")}
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Catalog View ─────────────────────────────────────────────────────────────
 
-function CatalogView({ items, role, user, search, categoryFilter, onClearFilters, mode, onModeChange, onClaim, onUpvote, upvotedIds, onRepost, repostCounts, myRepostItemIds, reposts, onShare, comments, onAddComment, onAddReply, challengeResponseCounts }: {
+function CatalogView({ items, role, user, search, categoryFilter, onClearFilters, onClaim, onUpvote, upvotedIds, onRepost, repostCounts, myRepostItemIds, reposts, onShare, comments, onAddComment, onAddReply, challengeResponseCounts }: {
   items: Item[];
   role: Role;
   user: AuthUser;
   search: string;
   categoryFilter: string;
   onClearFilters: () => void;
-  mode: CatalogMode;
-  onModeChange: (m: CatalogMode) => void;
   onClaim: (item: Item) => void;
   onUpvote: (id: string) => void;
   upvotedIds: Set<string>;
@@ -2110,23 +2103,7 @@ function CatalogView({ items, role, user, search, categoryFilter, onClearFilters
   const hasFilters = search !== "" || categoryFilter !== "All";
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6">
-      {/* On narrow screens the bottom tab bar switches layouts instead. */}
-      <div className="hidden md:flex gap-1 mb-4" role="tablist" aria-label="Catalog layout">
-        {(["feed", "community"] as const).map(m => (
-          <button
-            key={m}
-            type="button"
-            role="tab"
-            aria-selected={mode === m}
-            onClick={() => onModeChange(m)}
-            className="px-3 py-1 text-xs font-semibold rounded-full transition-colors"
-            style={mode === m ? { background: "#9A3F3F", color: "#FBF9D1" } : { background: "#F5ECEC", color: "#6B3A3A" }}
-          >
-            {m === "feed" ? "Feed" : "Community"}
-          </button>
-        ))}
-      </div>
+    <div className="max-w-2xl mx-auto px-4 pt-1 pb-6">
       {filtered.length === 0 ? (
         <div className="text-center py-16 rounded-xl" style={{ border: "1px dashed #C1856D" }}>
           <p className="text-sm font-medium" style={{ color: "#6B3A3A" }}>{hasFilters ? "No items match your search" : "Nothing posted yet"}</p>
@@ -2134,8 +2111,6 @@ function CatalogView({ items, role, user, search, categoryFilter, onClearFilters
             <button type="button" onClick={onClearFilters} className={btnSecondary + " mt-3"}>Clear filters</button>
           )}
         </div>
-      ) : mode === "community" ? (
-        <PhotoGrid items={filtered} emptyText="None of these posts have photos. Switch to Feed to see them all." />
       ) : (
         <div className="flex flex-col">
           {filtered.map(item => {
@@ -2193,53 +2168,45 @@ function GalleryView({ items, user }: { items: Item[]; user: AuthUser }) {
     (i.status === "pending_intake" && i.finder_id === user.id),
   );
   return (
-    <div className="max-w-2xl mx-auto px-3 py-4">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4">
       <PhotoGrid items={visible} emptyText="Posts with photos will appear here." />
     </div>
   );
 }
 
-// Two-column photo grid with a minimal overlay; items without photos are skipped.
-function PhotoGrid({ items, emptyText }: { items: Item[]; emptyText: string }) {
+// Responsive masonry photo grid (Requirement 19.2): CSS columns re-flow live as
+// the window resizes — 2 on phones, 3 ≥640px, 4 ≥1024px, 5 ≥1280px.
+// Items without photos are skipped.
+function PhotoTile({ item }: { item: Item }) {
   const openDetail = useOpenDetail();
-  const photoItems = items.filter(i => i.image_url);
-
-  // Split into two columns for masonry (odd → left, even → right).
-  const left = photoItems.filter((_, i) => i % 2 === 0);
-  const right = photoItems.filter((_, i) => i % 2 !== 0);
-
-  function Tile({ item }: { item: Item }) {
-    return (
-      <button
-        onClick={() => openDetail(item)}
-        className="relative w-full text-left overflow-hidden rounded-xl mb-2 block"
-        style={{ border: "1px solid #C1856D" }}
+  return (
+    <button
+      onClick={() => openDetail(item)}
+      className="relative w-full text-left overflow-hidden rounded-xl mb-2 block break-inside-avoid"
+      style={{ border: "1px solid #C1856D" }}
+    >
+      <img src={item.image_url} alt={item.title} loading="lazy" className="w-full h-auto object-cover block" />
+      {/* Minimal overlay — Found/Lost tag + title */}
+      <div
+        className="absolute bottom-0 left-0 right-0 px-2 py-2"
+        style={{ background: "linear-gradient(to top, rgba(44,20,20,0.72) 0%, transparent 100%)" }}
       >
-        <img
-          src={item.image_url}
-          alt={item.title}
-          className="w-full object-cover"
-          style={{ display: "block" }}
-        />
-        {/* Minimal overlay — Found/Lost tag + title */}
-        <div
-          className="absolute bottom-0 left-0 right-0 px-2 py-2"
-          style={{ background: "linear-gradient(to top, rgba(44,20,20,0.72) 0%, transparent 100%)" }}
+        <span
+          className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded mb-1 inline-block"
+          style={item.kind === "lost"
+            ? { background: "rgba(154,63,63,0.85)", color: "#FFFFFF" }
+            : { background: "rgba(193,133,109,0.85)", color: "#FFFFFF" }}
         >
-          <span
-            className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded mb-1 inline-block"
-            style={item.kind === "lost"
-              ? { background: "rgba(154,63,63,0.85)", color: "#FBF9D1" }
-              : { background: "rgba(193,133,109,0.85)", color: "#FBF9D1" }}
-          >
-            {item.kind === "lost" ? "Lost" : "Found"}
-          </span>
-          <p className="text-xs font-semibold leading-tight line-clamp-2" style={{ color: "#FBF9D1" }}>{item.title}</p>
-        </div>
-      </button>
-    );
-  }
+          {item.kind === "lost" ? "Lost" : "Found"}
+        </span>
+        <p className="text-xs font-semibold leading-tight line-clamp-2" style={{ color: "#FFFFFF" }}>{item.title}</p>
+      </div>
+    </button>
+  );
+}
 
+function PhotoGrid({ items, emptyText }: { items: Item[]; emptyText: string }) {
+  const photoItems = items.filter(i => i.image_url);
   if (photoItems.length === 0) {
     return (
       <div className="px-4 py-16 text-center">
@@ -2248,34 +2215,188 @@ function PhotoGrid({ items, emptyText }: { items: Item[]; emptyText: string }) {
       </div>
     );
   }
-
   return (
-    <div>
-      <div className="flex gap-2">
-        {/* Left column */}
-        <div className="flex-1 flex flex-col">
-          {left.map(item => <Tile key={item.id} item={item} />)}
-        </div>
-        {/* Right column */}
-        <div className="flex-1 flex flex-col">
-          {right.map(item => <Tile key={item.id} item={item} />)}
-        </div>
-      </div>
+    <div className="columns-2 sm:columns-3 lg:columns-4 xl:columns-5 gap-2">
+      {photoItems.map(item => <PhotoTile key={item.id} item={item} />)}
     </div>
   );
 }
 
 // ─── Finder Form ──────────────────────────────────────────────────────────────
 
-function FinderForm({ onSubmit }: {
+// Location field: pick a PUP campus place or type your own (Requirement 1.1b).
+function LocationCombobox({ value, onChange, placeholder }: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const options = matchPlaces(value, 50);
+  const listId = "campus-place-list";
+
+  function pick(place: string) {
+    onChange(place);
+    setOpen(false);
+    setActive(-1);
+  }
+
+  return (
+    <div className="relative flex-1 min-w-0">
+      <input
+        type="text"
+        role="combobox"
+        aria-expanded={open && options.length > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined}
+        aria-label={placeholder}
+        value={value}
+        required
+        placeholder={placeholder}
+        autoComplete="off"
+        onChange={e => { onChange(e.target.value); setOpen(true); setActive(-1); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={e => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive(a => Math.min(a + 1, options.length - 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); }
+          else if (e.key === "Enter" && open && active >= 0 && options[active]) { e.preventDefault(); pick(options[active]); }
+          else if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+        }}
+        className="w-full min-w-0 p-0 border-0 bg-transparent outline-none text-sm placeholder:text-[#B8A0A0]"
+        style={{ color: "#2C1414" }}
+      />
+      {open && options.length > 0 && (
+        <ul
+          id={listId}
+          role="listbox"
+          className="absolute left-0 right-0 top-full mt-2 z-20 max-h-60 overflow-y-auto rounded-lg py-1 shadow-lg"
+          style={{ background: "#FFFFFF", border: "1px solid #E5E5E5" }}
+        >
+          {options.map((place, i) => (
+            <li
+              key={place}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={i === active}
+              // mousedown (not click) so the input's blur doesn't close the list first
+              onMouseDown={e => { e.preventDefault(); pick(place); }}
+              onMouseEnter={() => setActive(i)}
+              className="px-3 py-2 text-sm cursor-pointer flex items-center gap-2"
+              style={{ background: i === active ? "#F5ECEC" : "transparent", color: "#2C1414" }}
+            >
+              <span style={{ color: "#9A7070" }}><IconMapPin /></span>
+              {place}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// Caption editor: one caption string, first line bold as the post title while
+// typing (Requirement 1.1a). Two seamless textareas behave like one field.
+function CaptionEditor({ value, onChange, placeholder }: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  const nl = value.indexOf("\n");
+  const title = nl === -1 ? value : value.slice(0, nl);
+  const body = nl === -1 ? "" : value.slice(nl + 1);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const [bodyShown, setBodyShown] = useState(false); // show the body line after Enter even while empty
+
+  const join = (t: string, b: string) => (b || bodyShown ? `${t}\n${b}` : t);
+  // Auto-grow both areas to fit their text.
+  useEffect(() => {
+    for (const el of [titleRef.current, bodyRef.current]) {
+      if (!el) continue;
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, [title, body, bodyShown]);
+
+  // Move the caret after React renders (the body area may not exist yet).
+  const [pendingFocus, setPendingFocus] = useState<{ to: "title" | "body"; pos: number } | null>(null);
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const el = pendingFocus.to === "body" ? bodyRef.current : titleRef.current;
+    if (el) { el.focus(); el.setSelectionRange(pendingFocus.pos, pendingFocus.pos); }
+    setPendingFocus(null);
+  }, [pendingFocus]);
+
+  return (
+    <div className="flex flex-col min-h-[6rem] cursor-text" onClick={e => { if (e.target === e.currentTarget) (bodyRef.current ?? titleRef.current)?.focus(); }}>
+      <textarea
+        ref={titleRef}
+        rows={1}
+        required
+        aria-label="Caption"
+        value={title}
+        placeholder={placeholder}
+        onChange={e => {
+          // Newlines (e.g. from paste) start the body.
+          const [first, ...rest] = e.target.value.split("\n");
+          if (rest.length) {
+            setBodyShown(true);
+            onChange(`${first}\n${rest.join("\n")}${body ? `\n${body}` : ""}`);
+            setPendingFocus({ to: "body", pos: rest.join("\n").length });
+          } else {
+            onChange(join(first, body));
+          }
+        }}
+        onKeyDown={e => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            setBodyShown(true);
+            onChange(`${title}\n${body}`);
+            setPendingFocus({ to: "body", pos: 0 });
+          }
+        }}
+        className="w-full p-0 border-0 bg-transparent outline-none resize-none overflow-hidden text-base font-semibold leading-snug placeholder:font-normal placeholder:text-[#B8A0A0]"
+        style={{ color: "#2C1414" }}
+      />
+      {(body || bodyShown) && (
+        <textarea
+          ref={bodyRef}
+          rows={1}
+          aria-label="Caption details"
+          value={body}
+          onChange={e => onChange(`${title}\n${e.target.value}`)}
+          onKeyDown={e => {
+            const el = e.currentTarget;
+            if (e.key === "Backspace" && el.selectionStart === 0 && el.selectionEnd === 0) {
+              // Join the first body line back onto the title line.
+              e.preventDefault();
+              const [first, ...rest] = body.split("\n");
+              const caret = title.length;
+              if (!body) setBodyShown(false);
+              onChange(rest.length ? `${title}${first}\n${rest.join("\n")}` : `${title}${first}`);
+              setPendingFocus({ to: "title", pos: caret });
+            }
+          }}
+          onBlur={() => { if (!body) setBodyShown(false); }}
+          className="w-full mt-1 p-0 border-0 bg-transparent outline-none resize-none overflow-hidden text-sm leading-relaxed"
+          style={{ color: "#6B3A3A" }}
+        />
+      )}
+    </div>
+  );
+}
+
+function FinderForm({ onSubmit, user }: {
   onSubmit: (item: Partial<Item>) => "posted" | "queued";
+  user: AuthUser;
 }) {
   const [queued, setQueued] = useState(false);
   const [mode, setMode] = useState<"found" | "lost">("found");
-  const [form, setForm] = useState({ title: "", category: "", location_found: "", time_found: "", description: "", private_note: "" });
-  // Lost-mode fields (map to the missing-notice model). Same shape as the found
-  // form minus the ownership challenge.
-  const [lostForm, setLostForm] = useState({ title: "", category: "", description: "", location_lost: "", time_lost: "", note: "" });
+  // One set of fields for both modes (Requirement 1.0a); submit maps them.
+  const emptyFields = () => ({ caption: "", category: "", location: "", note: "" });
+  const [fields, setFields] = useState(emptyFields);
   const [photoName, setPhotoName] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoData, setPhotoData] = useState<string | null>(null); // data URL of the selected image
@@ -2285,22 +2406,14 @@ function FinderForm({ onSubmit }: {
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [showCaptionImport, setShowCaptionImport] = useState(false);
-  // Ownership Challenge (optional): finder-authored short-text questions.
+  // Ownership Challenge (optional, Found only): finder-authored short-text questions.
   const [challengeQs, setChallengeQs] = useState<ChallengeQuestion[]>([]);
+  const [challengeOpen, setChallengeOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const isLost = mode === "lost";
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
-    setForm(f => ({ ...f, [e.target.name]: e.target.value }));
-  }
-
-  function addChallengeQ() {
-    setChallengeQs(qs => [...qs, { id: `q${Date.now()}${qs.length}`, prompt: "" }]);
-  }
-  function updateChallengeQ(id: string, prompt: string) {
-    setChallengeQs(qs => qs.map(q => q.id === id ? { ...q, prompt } : q));
-  }
-  function removeChallengeQ(id: string) {
-    setChallengeQs(qs => qs.filter(q => q.id !== id));
+  function setField(name: keyof ReturnType<typeof emptyFields>, value: string) {
+    setFields(f => ({ ...f, [name]: value }));
   }
 
   async function handleFillFromCaption() {
@@ -2312,29 +2425,15 @@ function FinderForm({ onSubmit }: {
       const anyFilled = Boolean(parsed.title || parsed.category || parsed.location_found || parsed.description);
       if (!anyFilled) {
         setImportMsg("Couldn't pull details from that text. Try adding more, or fill the fields manually.");
-      } else if (mode === "lost") {
-        // Lost mode: map the parsed fields onto the lost form (location → where lost).
-        setLostForm(f => ({
-          ...f,
-          title: parsed.title || f.title,
-          category: parsed.category || f.category,
-          location_lost: parsed.location_found || f.location_lost,
-          description: parsed.description || f.description,
-          time_lost: f.time_lost || nowForDateTimeLocal(),
-        }));
-        setImportMsg("Filled from caption. Review the fields before posting.");
       } else {
-        setForm(f => ({
+        setFields(f => ({
           ...f,
-          title: parsed.title || f.title,
+          caption: joinCaption(parsed.title, parsed.description) || f.caption,
           category: parsed.category || f.category,
-          location_found: parsed.location_found || f.location_found,
-          description: parsed.description || f.description,
-          // Caption text doesn't specify a time found — default to now (today),
-          // but keep it editable so the finder can correct it before logging.
-          time_found: f.time_found || nowForDateTimeLocal(),
+          location: parsed.location_found || f.location,
         }));
-        setImportMsg("Filled from caption. Review the fields before logging.");
+        setImportMsg(null);
+        setShowCaptionImport(false); // fields are filled behind the pop-up
       }
     } catch {
       setImportMsg("Something went wrong reading that caption. Please fill the fields manually.");
@@ -2347,7 +2446,23 @@ function FinderForm({ onSubmit }: {
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file) return;
+    if (file) await processPhoto(file);
+  }
+
+  // Drag-and-drop onto the photo area (Requirement 1.4a).
+  const [dragging, setDragging] = useState(false);
+  const dropProps = {
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; if (!dragging) setDragging(true); },
+    onDragLeave: (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file) processPhoto(file);
+    },
+  };
+
+  async function processPhoto(file: File) {
     setProcessing(true);
     setPhotoError(null);
     try {
@@ -2363,35 +2478,33 @@ function FinderForm({ onSubmit }: {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitted(true);
-    if (mode === "lost") {
-      // Lost posts are items with kind="lost" so they appear in the shared
-      // catalog for everyone (location_lost/time_lost map to location/time).
-      const result = onSubmit({
-        kind: "lost",
-        title: lostForm.title,
-        category: lostForm.category,
-        location_found: lostForm.location_lost,
-        time_found: lostForm.time_lost,
-        description: lostForm.description,
-        private_note: lostForm.note.trim() || undefined,
-        status: "in_office",
-        upvotes: 0,
-        ...(photoData ? { image_url: photoData } : {}),
-      });
-      setQueued(result === "queued");
-      return;
-    }
-    const challenge = challengeQs
-      .map(q => ({ ...q, prompt: q.prompt.trim() }))
-      .filter(q => q.prompt.length > 0);
-    const result = onSubmit({
-      ...form,
-      status: "pending_intake",
+    const { title, description } = splitCaption(fields.caption);
+    const common = {
+      title,
+      description,
+      category: fields.category,
+      location_found: fields.location,
+      time_found: new Date().toISOString(), // recorded as the posting time
+      private_note: fields.note.trim() || undefined,
       upvotes: 0,
       ...(photoData ? { image_url: photoData } : {}),
+    };
+    if (isLost) {
+      // Lost posts are items with kind="lost" so they appear in the shared catalog.
+      setQueued(onSubmit({ ...common, kind: "lost", status: "in_office" }) === "queued");
+      return;
+    }
+    const challenge = cleanQuestions(challengeQs);
+    setQueued(onSubmit({
+      ...common,
+      status: "pending_intake",
       ...(challenge.length > 0 ? { challenge } : {}),
-    });
-    setQueued(result === "queued");
+    }) === "queued");
+  }
+
+  function resetAll() {
+    setSubmitted(false); setQueued(false); setFields(emptyFields());
+    setPhotoName(null); setPhotoData(null); setChallengeQs([]); setChallengeOpen(false);
   }
 
   if (submitted) {
@@ -2402,9 +2515,9 @@ function FinderForm({ onSubmit }: {
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </div>
-        <h2 className="text-xl font-semibold" style={{ color: "#2C1414" }}>{mode === "lost" ? "Lost item posted" : "Item logged"}</h2>
+        <h2 className="text-xl font-semibold" style={{ color: "#2C1414" }}>{isLost ? "Lost item posted" : "Item logged"}</h2>
         <p className="mt-2 text-sm leading-relaxed" style={{ color: "#6B3A3A" }}>
-          {mode === "lost"
+          {isLost
             ? "Your lost-item post is now in the catalog for everyone to see. If someone finds it, they can respond there."
             : "Drop it off at the admin office (Room 101, Main Hall) to complete intake. The item won't appear in the public catalog until staff confirm physical custody."}
         </p>
@@ -2413,425 +2526,206 @@ function FinderForm({ onSubmit }: {
             You're offline, so it's saved on this device. It will post when you're back online.
           </p>
         )}
-        <button
-          onClick={() => { setSubmitted(false); setQueued(false); setForm({ title: "", category: "", location_found: "", time_found: "", description: "", private_note: "" }); setLostForm({ title: "", category: "", description: "", location_lost: "", time_lost: "", note: "" }); setPhotoName(null); setPhotoData(null); setChallengeQs([]); }}
-          className={btnPrimary + " mt-6"}
-        >
-          {mode === "lost" ? "Post another" : "Log another item"}
+        <button onClick={resetAll} className={btnPrimary + " mt-6"}>
+          {isLost ? "Post another" : "Log another item"}
         </button>
       </div>
     );
   }
 
+
   return (
     <div className="max-w-lg mx-auto px-4 py-6">
       <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold" style={{ color: "#2C1414" }}>Log a Found/Lost Item</h1>
-          <p className="mt-1 text-sm" style={{ color: "#6B3A3A" }}>
-            {mode === "found"
-              ? "Found something? Enter the details and drop it off at the admin office."
-              : "Lost something? Post a notice so it's on record if it's turned in."}
-          </p>
-        </div>
-        {!showCaptionImport && (
-          <button
-            type="button"
-            onClick={() => setShowCaptionImport(true)}
-            className="inline-flex items-center justify-center w-10 h-10 rounded-lg border shrink-0 transition-colors"
-            style={{ borderColor: "#C1856D", color: "#9A3F3F", background: "#F5ECEC" }}
-            aria-label="Generate from caption"
-            title="Generate from caption"
-          >
-            <IconSparkles />
-          </button>
-        )}
+        <h1 className="text-2xl font-semibold" style={{ color: "#2C1414" }}>Log a Found/Lost Item</h1>
       </div>
 
-      {/* Found / Lost mode toggle */}
-      <div className="flex gap-1 mb-6 p-1 rounded-lg w-full sm:w-fit" style={{ background: "#E6CFA9" }}>
-        {([
-          { id: "found" as const, label: "I found something" },
-          { id: "lost" as const, label: "I lost something" },
-        ]).map(m => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => setMode(m.id)}
-            className="flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-md transition-colors"
-            style={mode === m.id ? { background: "#FBF9D1", color: "#2C1414" } : { color: "#6B3A3A" }}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-
-      {mode === "lost" && (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Title <span style={{ color: "#9A3F3F" }}>*</span></label>
-            <input
-              type="text"
-              value={lostForm.title}
-              onChange={e => setLostForm(f => ({ ...f, title: e.target.value }))}
-              required
-              placeholder="A short headline, e.g. 'Lost: black earbuds near the library'"
-              className={inputCls}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Category <span style={{ color: "#9A3F3F" }}>*</span></label>
-            <select
-              value={lostForm.category}
-              onChange={e => setLostForm(f => ({ ...f, category: e.target.value }))}
-              required
-              className={inputCls}
-            >
-              <option value="">Select a category</option>
-              {CATEGORIES.slice(1).map(c => <option key={c}>{c}</option>)}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Where did you lose it? <span style={{ color: "#9A3F3F" }}>*</span></label>
-            <input
-              type="text"
-              value={lostForm.location_lost}
-              onChange={e => setLostForm(f => ({ ...f, location_lost: e.target.value }))}
-              required
-              placeholder="Building, room, or outdoor area"
-              className={inputCls}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>When did you lose it? <span style={{ color: "#9A3F3F" }}>*</span></label>
-            <input
-              type="datetime-local"
-              value={lostForm.time_lost}
-              onChange={e => setLostForm(f => ({ ...f, time_lost: e.target.value }))}
-              required
-              className={inputCls}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Description <span style={{ color: "#9A3F3F" }}>*</span></label>
-            <textarea
-              value={lostForm.description}
-              onChange={e => setLostForm(f => ({ ...f, description: e.target.value }))}
-              required
-              rows={3}
-              placeholder="Color, brand, notable markings, contents..."
-              className={inputCls + " resize-none"}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Private note to staff</label>
-            <textarea
-              value={lostForm.note}
-              onChange={e => setLostForm(f => ({ ...f, note: e.target.value }))}
-              rows={2}
-              placeholder="Context the catalog shouldn't show — condition, exact location, etc."
-              className={inputCls + " resize-none"}
-            />
-            <p className="text-xs mt-1" style={{ color: "#9A7070" }}>Staff only — not visible publicly.</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Photo</label>
-            <div
-              className="rounded-lg p-5 text-center cursor-pointer transition-colors"
-              style={{ border: "2px dashed #C1856D", background: "#F5ECEC" }}
-              onClick={() => fileRef.current?.click()}
-            >
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-              {processing ? (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#9A3F3F", borderTopColor: "transparent" }} />
-                  <p className="text-xs" style={{ color: "#6B3A3A" }}>Stripping location metadata…</p>
-                </div>
-              ) : photoData ? (
-                <div className="flex flex-col items-center gap-2">
-                  <img src={photoData} alt="Selected preview" className="w-24 h-24 object-cover rounded-lg" />
-                  <p className="text-xs" style={{ color: "#9A7070" }}>Tap to change photo</p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2" style={{ color: "#9A7070" }}>
-                  <IconCamera />
-                  <p className="text-sm">Tap to add a photo</p>
-                  <p className="text-xs">Location data is removed automatically.</p>
-                </div>
-              )}
-              {photoError && <p className="text-xs mt-2" style={{ color: "#9A3F3F" }}>{photoError}</p>}
-            </div>
-          </div>
-
-          <p className="text-xs" style={{ color: "#9A7070" }}>This posts a passive missing notice — it doesn't enter the office's held-item flow.</p>
-          <button type="submit" className={btnPrimary + " w-full py-3"}>Post missing notice</button>
-        </form>
-      )}
-
-      {mode === "found" && (
-      <>
-      {/* found-mode content follows */}
-
-      {/* AI caption import — collapsed by default to keep the form clean */}
+      {/* AI caption import — pop-up in the verification-form card style */}
       {showCaptionImport && (
-        <div className="rounded-lg p-4 mb-5" style={{ background: "#F5ECEC", border: "1px dashed #C1856D" }}>
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <label className="block text-sm font-semibold mb-1.5" style={{ color: "#2C1414" }}>Fill from a post caption</label>
-              <p className="text-xs mb-2" style={{ color: "#6B3A3A" }}>Paste a post caption to auto-fill the form.</p>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="caption-import-title">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCaptionImport(false)} />
+          <div className="relative w-full sm:max-w-md flex flex-col gap-4 rounded-t-2xl sm:rounded-xl p-4 sm:p-5 shadow-xl" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+            <div className="flex items-center justify-between gap-2">
+              <p id="caption-import-title" className="text-sm font-semibold" style={{ color: "#2C1414" }}>Fill from a post caption</p>
+              <button type="button" onClick={() => setShowCaptionImport(false)} aria-label="Close" className="hover:opacity-70" style={{ color: "#9A7070" }}>
+                <IconX />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowCaptionImport(false)}
-              aria-label="Hide caption import"
-              style={{ color: "#9A7070" }}
-            >
-              <IconX />
-            </button>
-          </div>
-          <textarea
-            value={caption}
-            onChange={e => setCaption(e.target.value)}
-            rows={3}
-            placeholder="Paste caption here…"
-            className={inputCls + " resize-none"}
-          />
-          <div className="flex items-center gap-3 mt-2">
-            <button
-              type="button"
-              onClick={handleFillFromCaption}
-              disabled={!caption.trim() || importing}
-              className={btnPrimary + " inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
-            >
-              <IconSparkles />
-              {importing ? "Generating…" : "Generate"}
-            </button>
-            {importMsg && <span className="text-xs" style={{ color: "#6B3A3A" }}>{importMsg}</span>}
+            <textarea
+              autoFocus
+              value={caption}
+              onChange={e => setCaption(e.target.value)}
+              onKeyDown={e => { if (e.key === "Escape") { e.preventDefault(); setShowCaptionImport(false); } }}
+              rows={5}
+              placeholder="Paste caption here…"
+              className={inputCls + " resize-none"}
+            />
+            {importMsg && <p className="text-xs" style={{ color: "#6B3A3A" }}>{importMsg}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleFillFromCaption}
+                disabled={!caption.trim() || importing}
+                className={btnPrimary + " inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
+              >
+                <IconSparkles />
+                {importing ? "Generating…" : "Generate"}
+              </button>
+              <button type="button" onClick={() => setShowCaptionImport(false)} className={btnSecondary}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Title <span style={{ color: "#9A3F3F" }}>*</span></label>
-          <input name="title" value={form.title} onChange={handleChange} required type="text" placeholder="A short headline, e.g. 'Found: black earbuds near the library'" className={inputCls} />
-        </div>
+        {/* The post, as it will appear (Requirement 1.0a) */}
+        <article className="rounded-xl p-4 flex flex-col gap-3" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Avatar id={user.id} name={user.name} size={32} />
+            <div className="min-w-0 leading-tight">
+              <p className="text-sm font-semibold truncate" style={{ color: "#2C1414" }}>{user.name}</p>
+              <p className="text-xs" style={{ color: "#9A7070" }}>just now</p>
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              {/* Found / Lost tag — tap to switch */}
+              <div className="inline-flex rounded-md p-0.5" style={{ background: "#F5ECEC" }} role="radiogroup" aria-label="Post type">
+                {(["found", "lost"] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === m}
+                    onClick={() => setMode(m)}
+                    className="px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide rounded transition-colors"
+                    style={mode === m
+                      ? (m === "lost" ? { background: "#9A3F3F", color: "#FFFFFF" } : { background: "#E6CFA9", color: "#5C2020" })
+                      : { color: "#9A7070" }}
+                  >
+                    {m === "found" ? "Found" : "Lost"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Category <span style={{ color: "#9A3F3F" }}>*</span></label>
-          <select name="category" value={form.category} onChange={handleChange} required className={inputCls}>
-            <option value="">Select a category</option>
-            {CATEGORIES.slice(1).map(c => <option key={c}>{c}</option>)}
-          </select>
-        </div>
+          <div className="relative pr-11">
+            <CaptionEditor
+              value={fields.caption}
+              onChange={v => setField("caption", v)}
+              placeholder={isLost ? "What did you lose?" : "What did you find?"}
+            />
+            {/* Generate from a pasted caption (Requirement 12) */}
+            {!showCaptionImport && (
+              <button
+                type="button"
+                onClick={() => { setImportMsg(null); setShowCaptionImport(true); }}
+                className="absolute bottom-0 right-0 inline-flex items-center justify-center w-9 h-9 transition-opacity hover:opacity-70"
+                style={{ color: "#9A3F3F" }}
+                aria-label="Generate from caption"
+                title="Generate from caption"
+              >
+                <IconSparkles />
+              </button>
+            )}
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Where did you find it? <span style={{ color: "#9A3F3F" }}>*</span></label>
-          <input name="location_found" value={form.location_found} onChange={handleChange} required type="text" placeholder="Building, room, or outdoor area" className={inputCls} />
-        </div>
+          <div className="flex flex-col gap-2 text-sm" style={{ color: "#6B3A3A" }}>
+            <div className="flex items-center gap-2">
+              <IconMapPin />
+              <LocationCombobox
+                value={fields.location}
+                onChange={v => setField("location", v)}
+                placeholder={isLost ? "Where did you lose it?" : "Where did you find it?"}
+              />
+            </div>
+            <label className="self-start">
+              <span className="sr-only">Category</span>
+              <select
+                value={fields.category}
+                onChange={e => setField("category", e.target.value)}
+                required
+                className="px-3 py-1 text-xs font-semibold rounded-full border bg-transparent outline-none cursor-pointer"
+                style={{ borderColor: "#C1856D", color: fields.category ? "#2C1414" : "#9A7070" }}
+              >
+                <option value="">Category</option>
+                {CATEGORIES.slice(1).map(c => <option key={c}>{c}</option>)}
+              </select>
+            </label>
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>When did you find it? <span style={{ color: "#9A3F3F" }}>*</span></label>
-          <input name="time_found" value={form.time_found} onChange={handleChange} required type="datetime-local" className={inputCls} />
-        </div>
+          {/* Photo — where the post image goes */}
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+          {photoData && !processing ? (
+            <div className="relative rounded-lg overflow-hidden" style={{ background: "#D4B890" }} {...dropProps}>
+              <img src={photoData} alt={photoName ?? "Selected photo"} className="w-full max-h-96 object-cover" />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="absolute bottom-2 right-2 px-3 py-1 text-xs font-semibold rounded-full"
+                style={{ background: "rgba(44,20,20,0.7)", color: "#FFFFFF" }}
+              >
+                Change photo
+              </button>
+            </div>
+          ) : (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => fileRef.current?.click()}
+              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileRef.current?.click(); } }}
+              className="rounded-lg p-6 text-center cursor-pointer transition-colors"
+              style={{ border: `2px dashed ${dragging ? "#9A3F3F" : "#C1856D"}`, background: dragging ? "#EBD9D9" : "#F5ECEC" }}
+              {...dropProps}
+            >
+              {processing ? (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#9A3F3F", borderTopColor: "transparent" }} />
+                  <p className="text-xs" style={{ color: "#6B3A3A" }}>Stripping location metadata…</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2" style={{ color: "#9A7070" }}>
+                  <IconCamera />
+                  <p className="text-sm">{dragging ? "Drop photo here" : "Tap or drag a photo here"}</p>
+                </div>
+              )}
+            </div>
+          )}
+          {photoError && <p className="text-xs" style={{ color: "#9A3F3F" }}>{photoError}</p>}
+        </article>
 
-        <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Description <span style={{ color: "#9A3F3F" }}>*</span></label>
-          <textarea name="description" value={form.description} onChange={handleChange} required rows={3} placeholder="Color, brand, notable markings, contents..." className={inputCls + " resize-none"} />
-        </div>
+        {/* Ownership challenge (optional, Found only) — same verification-form card as the post view */}
+        {!isLost && (challengeOpen ? (
+          <div className="flex flex-col gap-4 rounded-xl p-4 sm:p-5" style={{ border: "1px solid #E6CFA9", background: "#FFFFFF" }}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>Verification form</p>
+              <button
+                type="button"
+                onClick={() => { setChallengeOpen(false); setChallengeQs([]); }}
+                className="text-xs font-medium hover:opacity-70"
+                style={{ color: "#9A7070" }}
+              >
+                Remove
+              </button>
+            </div>
+            <QuestionBuilder questions={challengeQs} onChange={setChallengeQs} />
+          </div>
+        ) : (
+          <CreateFormCard onOpen={() => { setChallengeQs([sampleQuestion()]); setChallengeOpen(true); }} />
+        ))}
 
         <div>
           <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Private note to staff</label>
-          <textarea name="private_note" value={form.private_note} onChange={handleChange} rows={2} placeholder="Context the catalog shouldn't show — condition, exact location, etc." className={inputCls + " resize-none"} />
-          <p className="text-xs mt-1" style={{ color: "#9A7070" }}>Staff only — not visible publicly.</p>
+          <textarea value={fields.note} onChange={e => setField("note", e.target.value)} rows={2} className={inputCls + " resize-none"} />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1.5" style={{ color: "#2C1414" }}>Photo</label>
-          <div
-            className="rounded-lg p-5 text-center cursor-pointer transition-colors"
-            style={{ border: "2px dashed #C1856D", background: "#F5ECEC" }}
-            onClick={() => fileRef.current?.click()}
-          >
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-            {processing ? (
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#9A3F3F", borderTopColor: "transparent" }} />
-                <p className="text-xs" style={{ color: "#6B3A3A" }}>Stripping location metadata…</p>
-              </div>
-            ) : photoName ? (
-              <div className="flex flex-col items-center gap-2">
-                {photoData && <img src={photoData} alt="Selected preview" className="w-24 h-24 object-cover rounded-lg" />}
-                <p className="text-sm font-medium" style={{ color: "#9A3F3F" }}>{photoName}</p>
-                <p className="text-xs" style={{ color: "#9A7070" }}>Tap to change photo</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2" style={{ color: "#9A7070" }}>
-                <IconCamera />
-                <p className="text-sm">Tap to add a photo</p>
-                <p className="text-xs">Location data is removed automatically.</p>
-              </div>
-            )}
-            {photoError && <p className="text-xs mt-2" style={{ color: "#9A3F3F" }}>{photoError}</p>}
-          </div>
-        </div>
-
-        {/* Ownership Challenge (optional) — questions only the real owner can answer */}
-        <div className="rounded-lg p-4" style={{ background: "#F5ECEC", border: "1px dashed #C1856D" }}>
-          <label className="block text-sm font-semibold mb-1" style={{ color: "#2C1414" }}>Ownership challenge (optional)</label>
-          <p className="text-xs mb-3" style={{ color: "#6B3A3A" }}>
-            Add questions only the real owner could answer (e.g. "What's the serial number?", "What's inside?"). Claimants answer these when they tap "I lost this".
-          </p>
-          {challengeQs.length > 0 && (
-            <div className="flex flex-col gap-2 mb-2">
-              {challengeQs.map((q, i) => (
-                <div key={q.id} className="flex items-center gap-2">
-                  <span className="text-xs font-semibold w-4 shrink-0" style={{ color: "#9A3F3F" }}>{i + 1}.</span>
-                  <input
-                    type="text"
-                    value={q.prompt}
-                    onChange={e => updateChallengeQ(q.id, e.target.value)}
-                    placeholder="Type a question…"
-                    className={inputCls + " flex-1"}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeChallengeQ(q.id)}
-                    aria-label="Remove question"
-                    className="shrink-0 p-1.5 rounded-lg transition-colors"
-                    style={{ color: "#9A7070" }}
-                  >
-                    <IconX />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <button type="button" onClick={addChallengeQ} className={btnSecondary + " inline-flex items-center gap-1.5"}>
-            <span className="text-base leading-none">+</span> Add question
-          </button>
-        </div>
-
-        <button type="submit" className={btnPrimary + " w-full py-3"}>Log found item</button>
+        <button type="submit" className={btnPrimary + " w-full py-3"}>Post</button>
       </form>
-      </>
-      )}
     </div>
   );
 }
 
 // ─── Missing Notices ──────────────────────────────────────────────────────────
 
-// ─── Owner Claims View ────────────────────────────────────────────────────────
-
-function OwnerClaimsView({ claims, items, onReply }: { claims: Claim[]; items: Item[]; onReply: (claimId: string, message: string) => void }) {
-  const [activeClaimId, setActiveClaimId] = useState<string | null>(null);
-  const [reply, setReply] = useState("");
-
-  const activeClaim = claims.find(c => c.id === activeClaimId);
-
-  function handleReply(e: React.FormEvent) {
-    e.preventDefault();
-    if (!reply.trim() || !activeClaimId) return;
-    onReply(activeClaimId, reply);
-    setReply("");
-  }
-
-  if (claims.length === 0) {
-    return (
-      <div className="max-w-lg mx-auto px-4 py-12 text-center">
-        <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ background: "#E6CFA9" }}>
-          <span style={{ color: "#9A7070" }}><IconInbox /></span>
-        </div>
-        <p className="font-medium" style={{ color: "#2C1414" }}>No active claims</p>
-        <p className="text-sm mt-1" style={{ color: "#9A7070" }}>Browse the catalog to claim a found item</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-2xl mx-auto px-4 py-6">
-      <h1 className="text-2xl font-semibold mb-6" style={{ color: "#2C1414" }}>My Claims</h1>
-
-      {!activeClaim ? (
-        <div className="flex flex-col gap-4">
-          {claims.map(claim => {
-            const item = items.find(i => i.id === claim.item_id);
-            return (
-              <button key={claim.id} onClick={() => setActiveClaimId(claim.id)} className="text-left rounded-xl p-5 transition-shadow hover:shadow-md" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <span className="text-xs font-semibold" style={{ color: "#9A3F3F" }}>{item?.category}</span>
-                    <p className="text-sm mt-1 line-clamp-2" style={{ color: "#2C1414" }}>{item?.description}</p>
-                    <p className="text-xs mt-2" style={{ color: "#9A7070" }}>{claim.messages.length} message{claim.messages.length !== 1 ? "s" : ""} · {relativeDate(claim.created_at)}</p>
-                  </div>
-                  <ClaimBadge status={claim.status} />
-                </div>
-                {claim.status === "approved" && (
-                  <div className="mt-3 p-2.5 rounded-lg text-xs font-medium" style={{ background: "#F2EBE5", border: "1px solid #C1856D", color: "#5C2020" }}>
-                    Approved for pickup — bring your ID to the office (Mon–Fri 9am–5pm)
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <div>
-          <button onClick={() => setActiveClaimId(null)} className="flex items-center gap-2 text-sm mb-4 transition-colors" style={{ color: "#6B3A3A" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            Back to claims
-          </button>
-
-          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #C1856D" }}>
-            <div className="p-5 flex items-start justify-between gap-4" style={{ borderBottom: "1px solid #C1856D", background: "#E6CFA9" }}>
-              <div>
-                <p className="text-sm font-medium" style={{ color: "#2C1414" }}>{items.find(i => i.id === activeClaim.item_id)?.description}</p>
-                <p className="text-xs mt-1" style={{ color: "#6B3A3A" }}>Submitted {formatDate(activeClaim.created_at)}</p>
-              </div>
-              <ClaimBadge status={activeClaim.status} />
-            </div>
-
-            <div className="p-5 flex flex-col gap-4 max-h-80 overflow-y-auto scroll-area" style={{ background: "#FBF9D1" }}>
-              <div className="p-3 rounded-lg" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-                <p className="text-xs font-medium mb-1" style={{ color: "#6B3A3A" }}>Your identifying details</p>
-                <p className="text-sm" style={{ color: "#2C1414" }}>{activeClaim.identifying_details}</p>
-              </div>
-              {activeClaim.messages.map(msg => (
-                <div key={msg.id} className={`flex flex-col ${msg.sender_role === "owner" ? "items-end" : "items-start"}`}>
-                  <div className="max-w-xs px-4 py-3 rounded-2xl text-sm leading-relaxed"
-                    style={msg.sender_role === "staff"
-                      ? { background: "#9A3F3F", color: "#FBF9D1" }
-                      : { background: "#E6CFA9", color: "#2C1414", border: "1px solid #C1856D" }
-                    }>
-                    {msg.sender_role === "staff" && (
-                      <span className="flex items-center gap-1 text-xs font-semibold mb-1" style={{ color: "#E6CFA9" }}><IconShield /> Staff</span>
-                    )}
-                    {msg.message}
-                  </div>
-                  <span className="text-xs mt-1" style={{ color: "#9A7070" }}>{formatTime(msg.created_at)}</span>
-                </div>
-              ))}
-            </div>
-
-            {activeClaim.status === "pending_review" && (
-              <form onSubmit={handleReply} className="p-4 flex gap-3" style={{ borderTop: "1px solid #C1856D", background: "#FBF9D1" }}>
-                <input type="text" value={reply} onChange={e => setReply(e.target.value)} placeholder="Reply to staff..." className={inputCls + " flex-1"} />
-                <button type="submit" disabled={!reply.trim()} className={btnPrimary + " disabled:opacity-40 disabled:cursor-not-allowed"}>Send</button>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── Staff Dashboard ──────────────────────────────────────────────────────────
 
@@ -2873,7 +2767,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#9A3F3F", color: "#FFFFFF" }}>
           <IconShield />
         </div>
         <div>
@@ -2893,13 +2787,13 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
             onClick={() => { setTab(t.id); setActiveClaimId(null); }}
             className="px-4 py-2 text-sm font-medium rounded-md transition-colors relative"
             style={tab === t.id
-              ? { background: "#FBF9D1", color: "#2C1414" }
+              ? { background: "#FFFFFF", color: "#2C1414" }
               : { color: "#6B3A3A" }
             }
           >
             {t.label}
             {t.count > 0 && (
-              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full font-semibold" style={{ background: t.countBg, color: "#FBF9D1" }}>{t.count}</span>
+              <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full font-semibold" style={{ background: t.countBg, color: "#FFFFFF" }}>{t.count}</span>
             )}
           </button>
         ))}
@@ -2919,12 +2813,12 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#FBF9D1", color: "#9A3F3F" }}>{item.category}</span>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "#FFFFFF", color: "#9A3F3F" }}>{item.category}</span>
                         <StatusBadge status={item.status} />
                       </div>
                       <p className="text-sm mb-2" style={{ color: "#2C1414" }}>{item.description}</p>
                       {item.private_note && (
-                        <div className="p-2.5 rounded-lg mb-2" style={{ background: "#FBF9D1", border: "1px solid #C1856D" }}>
+                        <div className="p-2.5 rounded-lg mb-2" style={{ background: "#FFFFFF", border: "1px solid #C1856D" }}>
                           <p className="text-xs" style={{ color: "#6B3A3A" }}><span className="font-semibold">Finder note:</span> {item.private_note}</p>
                         </div>
                       )}
@@ -2939,7 +2833,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
                     <button
                       onClick={() => onStatusChange(item.id, NEXT_STATUS[item.status]!)}
                       className="flex-1 py-2.5 text-sm font-semibold rounded-lg transition-colors"
-                      style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+                      style={{ background: "#9A3F3F", color: "#FFFFFF" }}
                       onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
                       onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
                     >
@@ -3000,7 +2894,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
               <ClaimBadge status={activeClaim.status} />
             </div>
 
-            <div className="p-5 flex flex-col gap-4 max-h-72 overflow-y-auto scroll-area" style={{ background: "#FBF9D1" }}>
+            <div className="p-5 flex flex-col gap-4 max-h-72 overflow-y-auto scroll-area" style={{ background: "#FFFFFF" }}>
               <div className="p-3 rounded-lg" style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
                 <p className="text-xs font-medium mb-1" style={{ color: "#6B3A3A" }}>Owner's identifying details</p>
                 <p className="text-sm" style={{ color: "#2C1414" }}>{activeClaim.identifying_details}</p>
@@ -3010,7 +2904,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
                   <div className="max-w-xs px-4 py-3 rounded-2xl text-sm leading-relaxed"
                     style={msg.sender_role === "owner"
                       ? { background: "#E6CFA9", color: "#2C1414", border: "1px solid #C1856D" }
-                      : { background: "#9A3F3F", color: "#FBF9D1" }
+                      : { background: "#9A3F3F", color: "#FFFFFF" }
                     }>
                     {msg.sender_role === "owner" && <span className="text-xs font-medium block mb-1" style={{ color: "#6B3A3A" }}>{activeClaim.owner_name}</span>}
                     {msg.message}
@@ -3022,15 +2916,15 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
 
             {activeClaim.status === "pending_review" && (
               <>
-                <form onSubmit={handleStaffReply} className="p-4 flex gap-3" style={{ borderTop: "1px solid #C1856D", background: "#FBF9D1" }}>
+                <form onSubmit={handleStaffReply} className="p-4 flex gap-3" style={{ borderTop: "1px solid #C1856D", background: "#FFFFFF" }}>
                   <input type="text" value={reply} onChange={e => setReply(e.target.value)} placeholder="Reply to owner..." className={inputCls + " flex-1"} />
                   <button type="submit" disabled={!reply.trim()} className={btnPrimary + " disabled:opacity-40 disabled:cursor-not-allowed"}>Send</button>
                 </form>
-                <div className="px-5 pb-5 flex gap-3" style={{ background: "#FBF9D1" }}>
+                <div className="px-5 pb-5 flex gap-3" style={{ background: "#FFFFFF" }}>
                   <button
                     onClick={() => { onClaimAction(activeClaim.id, "approved"); setActiveClaimId(null); }}
                     className="flex-1 py-2.5 text-sm font-semibold rounded-lg transition-colors"
-                    style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+                    style={{ background: "#9A3F3F", color: "#FFFFFF" }}
                     onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
                     onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
                   >
@@ -3058,7 +2952,7 @@ function StaffDashboard({ items, claims, allItems, onStatusChange, onClaimAction
 
 // ─── Nav ──────────────────────────────────────────────────────────────────────
 
-type View = "catalog" | "gallery" | "log" | "claims" | "profile" | "staff" | "notifications";
+type View = "catalog" | "gallery" | "log" | "profile" | "staff" | "notifications";
 
 function Nav({ view, setView, role, user, search, setSearch, categoryFilter, setCategoryFilter, offlineQueueCount, unreadCount }: {
   view: View;
@@ -3072,50 +2966,23 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
   offlineQueueCount: number;
   unreadCount: number;
 }) {
-  const navItems: { id: View; label: string; roles: Role[] }[] = [
-    { id: "catalog", label: "Catalog", roles: ["finder", "owner", "staff"] },
-    { id: "gallery", label: "Gallery", roles: ["finder", "owner", "staff"] },
-    { id: "log", label: "Log Item", roles: ["finder", "owner"] },
-    { id: "claims", label: "My Claims", roles: ["owner"] },
-    { id: "notifications", label: "Notifications", roles: ["finder", "owner", "staff"] },
-    { id: "staff", label: "Staff", roles: ["staff"] },
-  ];
-
-  const visible = navItems.filter(n => n.roles.includes(role));
   const canCreate = role !== "staff";
-  const [menuOpen, setMenuOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   // Search starts collapsed (just the icon); clicking the icon expands it.
   const [searchFocused, setSearchFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  function go(v: View) {
-    setView(v);
-    setMenuOpen(false);
-  }
-
   return (
-    <header className="sticky top-0 z-40" style={{ background: "#FBF9D1", borderBottom: "1px solid #C1856D" }}>
+    <header className="sticky top-0 z-40" style={{ background: "#FFFFFF", borderBottom: "1px solid #E5E5E5" }}>
       {offlineQueueCount > 0 && (
-        <div className="text-xs font-medium px-4 py-2 flex items-center gap-2" style={{ background: "#C1856D", color: "#FBF9D1" }}>
+        <div className="text-xs font-medium px-4 py-2 flex items-center gap-2" style={{ background: "#C1856D", color: "#FFFFFF" }}>
           <IconWifi />
           <span>{offlineQueueCount} item{offlineQueueCount !== 1 ? "s" : ""} waiting to sync — reconnect to complete</span>
         </div>
       )}
 
       {/* Top row — two states: collapsed (icon) and expanded (full search) */}
-      <div className="max-w-5xl mx-auto px-4 flex items-center gap-3 h-14">
-        {!searchFocused && (
-          <button
-            onClick={() => setMenuOpen(true)}
-            className="inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
-            style={{ color: "#2C1414" }}
-            aria-label="Open menu"
-            title="Menu"
-          >
-            <IconMenu />
-          </button>
-        )}
+      <div className="max-w-5xl mx-auto px-4 flex items-center gap-2 h-12">
 
         {!searchFocused && (
           <button
@@ -3123,7 +2990,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
             className="flex items-center gap-2 shrink-0"
             aria-label="Home"
           >
-            <span className="font-semibold text-2xl block" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
+            <span className="font-semibold text-xl block" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
               <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
             </span>
           </button>
@@ -3133,7 +3000,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
         {!searchFocused ? (
           <button
             onClick={() => { setSearchFocused(true); setTimeout(() => searchInputRef.current?.focus(), 30); }}
-            className="ml-auto inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
+            className="ml-auto inline-flex items-center justify-center w-8 h-8 rounded-lg [&_svg]:w-[18px] [&_svg]:h-[18px] transition-colors shrink-0"
             style={{ color: "#2C1414" }}
             aria-label="Open search"
             title="Search"
@@ -3159,6 +3026,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
               />
               {search && (
                 <button
+                  onMouseDown={e => e.preventDefault()}
                   onClick={() => setSearch("")}
                   className="absolute right-9 top-1/2 -translate-y-1/2"
                   style={{ color: "#9A7070" }}
@@ -3168,6 +3036,7 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
                 </button>
               )}
               <button
+                onMouseDown={e => e.preventDefault()} // keep the search open (its blur collapses it)
                 onClick={() => setFilterOpen(o => !o)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
                 style={{ color: categoryFilter !== "All" ? "#9A3F3F" : "#9A7070" }}
@@ -3178,11 +3047,12 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
               </button>
               {filterOpen && (
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
-                  <div className="absolute right-0 mt-2 z-50 w-48 rounded-lg py-1 shadow-xl" style={{ background: "#FBF9D1", border: "1px solid #C1856D" }}>
+                  <div className="fixed inset-0 z-40" onMouseDown={e => e.preventDefault()} onClick={() => setFilterOpen(false)} />
+                  <div className="absolute right-0 mt-2 z-50 w-48 rounded-lg py-1 shadow-xl" style={{ background: "#FFFFFF", border: "1px solid #C1856D" }}>
                     {CATEGORIES.map(c => (
                       <button
                         key={c}
+                        onMouseDown={e => e.preventDefault()}
                         onClick={() => { setCategoryFilter(c); setFilterOpen(false); if (view !== "catalog") setView("catalog"); }}
                         className="w-full text-left px-3 py-2 text-sm transition-colors"
                         style={c === categoryFilter ? { background: "#E6CFA9", color: "#9A3F3F", fontWeight: 600 } : { color: "#2C1414" }}
@@ -3210,10 +3080,8 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
             {canCreate && (
               <button
                 onClick={() => setView("log")}
-                className="hidden md:inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors"
-                style={{ background: "#9A3F3F", color: "#FBF9D1" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#7A2E2E")}
-                onMouseLeave={e => (e.currentTarget.style.background = "#9A3F3F")}
+                className="hidden md:inline-flex items-center justify-center w-8 h-8 rounded-lg [&_svg]:w-[18px] [&_svg]:h-[18px] transition-opacity hover:opacity-70"
+                style={{ color: view === "log" ? "#9A3F3F" : "#2C1414" }}
                 aria-label="Log a found item"
                 title="Log a found item"
               >
@@ -3221,15 +3089,25 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
               </button>
             )}
             <button
+              onClick={() => setView("gallery")}
+              className="hidden md:inline-flex items-center justify-center w-8 h-8 rounded-lg [&_svg]:w-[18px] [&_svg]:h-[18px] transition-opacity hover:opacity-70"
+              style={{ color: view === "gallery" ? "#9A3F3F" : "#2C1414" }}
+              aria-label="Gallery"
+              aria-current={view === "gallery" ? "page" : undefined}
+              title="Gallery"
+            >
+              <TabIconCommunity active={view === "gallery"} />
+            </button>
+            <button
               onClick={() => setView("notifications")}
-              className="relative hidden md:inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0"
+              className="relative hidden md:inline-flex items-center justify-center w-8 h-8 rounded-lg [&_svg]:w-[18px] [&_svg]:h-[18px] transition-colors shrink-0"
               style={{ color: view === "notifications" ? "#9A3F3F" : "#2C1414" }}
               aria-label="Notifications"
               title="Notifications"
             >
               <IconBell />
               {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style={{ background: "#9A3F3F", color: "#FFFFFF" }}>
                   {unreadCount > 9 ? "9+" : unreadCount}
                 </span>
               )}
@@ -3242,11 +3120,11 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
             title="Your profile"
           >
             {user.avatar_url ? (
-              <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover block" />
+              <img src={user.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover block" />
             ) : (
               <span
-                className="inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-semibold shrink-0"
-                style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+                className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-semibold shrink-0"
+                style={{ background: "#9A3F3F", color: "#FFFFFF" }}
                 aria-hidden="true"
               >
                 {user.name.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase()}
@@ -3257,37 +3135,6 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
         )}
       </div>
 
-      {/* Left sidebar drawer */}
-      <div className={"fixed inset-0 z-50 " + (menuOpen ? "" : "pointer-events-none")} aria-hidden={!menuOpen}>
-        <div
-          className={"absolute inset-0 bg-black/40 transition-opacity duration-300 " + (menuOpen ? "opacity-100" : "opacity-0")}
-          onClick={() => setMenuOpen(false)}
-        />
-        <aside
-          className={"absolute left-0 top-0 bottom-0 w-64 max-w-[80%] p-4 flex flex-col gap-1 shadow-xl transition-transform duration-300 ease-out " + (menuOpen ? "translate-x-0" : "-translate-x-full")}
-          style={{ background: "#FBF9D1", borderRight: "1px solid #C1856D" }}
-        >
-            <div className="flex items-center justify-between mb-3">
-              <span className="font-semibold text-sm" style={{ color: "#2C1414" }}>Menu</span>
-              <button onClick={() => setMenuOpen(false)} aria-label="Close menu" style={{ color: "#9A7070" }}>
-                <IconX />
-              </button>
-            </div>
-            {visible.map(item => (
-              <button
-                key={item.id}
-                onClick={() => go(item.id)}
-                className="text-left px-3 py-2.5 text-sm font-medium rounded-lg transition-colors"
-                style={view === item.id
-                  ? { background: "#E6CFA9", color: "#9A3F3F" }
-                  : { color: "#6B3A3A" }
-                }
-              >
-                {item.label}
-              </button>
-            ))}
-        </aside>
-      </div>
     </header>
   );
 }
@@ -3295,53 +3142,48 @@ function Nav({ view, setView, role, user, search, setSearch, categoryFilter, set
 // ─── Mobile bottom tab bar (Requirement 11a.9) ─────────────────────────────────
 
 function TabIconFeed({ active }: { active: boolean }) {
-  const fill = active ? "currentColor" : "none";
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3.5" y="3.5" width="7" height="9" rx="1" fill={fill} />
-      <rect x="13.5" y="3.5" width="7" height="5" rx="1" fill={fill} />
-      <rect x="3.5" y="15.5" width="7" height="5" rx="1" fill={fill} />
-      <rect x="13.5" y="11.5" width="7" height="9" rx="1" fill={fill} />
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path
+        d="M3.5 10.2 12 3l8.5 7.2v9.3a1.5 1.5 0 0 1-1.5 1.5h-4.5v-6.5h-5V21H5a1.5 1.5 0 0 1-1.5-1.5Z"
+        fill={active ? "currentColor" : "none"}
+      />
     </svg>
   );
 }
 
 function TabIconCommunity({ active }: { active: boolean }) {
-  const fill = active ? "currentColor" : "none";
+  const cells = [3.5, 10, 16.5];
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3.5" y="3.5" width="7" height="7" rx="1" fill={fill} />
-      <rect x="13.5" y="3.5" width="7" height="7" rx="1" fill={fill} />
-      <rect x="3.5" y="13.5" width="7" height="7" rx="1" fill={fill} />
-      <rect x="13.5" y="13.5" width="7" height="7" rx="1" fill={fill} />
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      {cells.flatMap(y => cells.map(x => (
+        <rect key={`${x}-${y}`} x={x} y={y} width="4" height="4" rx={active ? 1 : 1.3} />
+      )))}
     </svg>
   );
 }
 
 function TabIconAlerts({ active }: { active: boolean }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5z" fill={active ? "currentColor" : "none"} />
-      <path d="M10 20.5a2 2 0 0 0 4 0" />
-      <path d="M12 3v1.5" />
-      <path d="M4 7.5 2.5 6.5M20 7.5l1.5-1" />
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 16.2V11a6 6 0 1 0-12 0v5.2l-1.4 1.9a.6.6 0 0 0 .5 1h13.8a.6.6 0 0 0 .5-1Z" fill={active ? "currentColor" : "none"} />
+      <path d="M9.8 21.5a2.5 2.5 0 0 0 4.4 0" />
     </svg>
   );
 }
 
 function TabIconProfile({ active }: { active: boolean }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="10" r="3" fill={active ? "currentColor" : "none"} />
-      <path d="M6.5 18.2c1.3-2 3.2-3 5.5-3s4.2 1 5.5 3" />
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9.5" />
+      <circle cx="12" cy="10" r="3.2" fill={active ? "currentColor" : "none"} />
+      <path d="M6.2 18.6c1.4-2.1 3.4-3.2 5.8-3.2s4.4 1.1 5.8 3.2" />
     </svg>
   );
 }
 
-function BottomNav({ view, catalogMode, canCreate, unreadCount, onFeed, onCommunity, onCreate, onAlerts, onProfile }: {
+function BottomNav({ view, canCreate, unreadCount, onFeed, onCommunity, onCreate, onAlerts, onProfile }: {
   view: View;
-  catalogMode: CatalogMode;
   canCreate: boolean;
   unreadCount: number;
   onFeed: () => void;
@@ -3351,8 +3193,8 @@ function BottomNav({ view, catalogMode, canCreate, unreadCount, onFeed, onCommun
   onProfile: () => void;
 }) {
   const tabs = [
-    { key: "feed", label: "Feed", active: view === "catalog" && catalogMode === "feed", onClick: onFeed, Icon: TabIconFeed },
-    { key: "community", label: "Community", active: view === "catalog" && catalogMode === "community", onClick: onCommunity, Icon: TabIconCommunity },
+    { key: "feed", label: "Feed", active: view === "catalog", onClick: onFeed, Icon: TabIconFeed },
+    { key: "community", label: "Community", active: view === "gallery", onClick: onCommunity, Icon: TabIconCommunity },
     { key: "alerts", label: "Alerts", active: view === "notifications", onClick: onAlerts, Icon: TabIconAlerts },
     { key: "profile", label: "Profile", active: view === "profile", onClick: onProfile, Icon: TabIconProfile },
   ];
@@ -3371,7 +3213,7 @@ function BottomNav({ view, catalogMode, canCreate, unreadCount, onFeed, onCommun
         {t.key === "alerts" && unreadCount > 0 && (
           <span
             className="absolute -top-1 -right-2 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold leading-4 text-center"
-            style={{ background: "#9A3F3F", color: "#FBF9D1", boxShadow: "0 0 0 2px #FBF9D1" }}
+            style={{ background: "#9A3F3F", color: "#FFFFFF", boxShadow: "0 0 0 2px #FFFFFF" }}
             aria-label={`${unreadCount} unread`}
           >
             {unreadCount > 9 ? "9+" : unreadCount}
@@ -3385,7 +3227,7 @@ function BottomNav({ view, catalogMode, canCreate, unreadCount, onFeed, onCommun
   return (
     <nav
       className="md:hidden fixed inset-x-0 bottom-0 z-40"
-      style={{ background: "#FBF9D1", borderTop: "1px solid #E6CFA9", paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{ background: "#FFFFFF", borderTop: "1px solid #E6CFA9", paddingBottom: "env(safe-area-inset-bottom)" }}
       aria-label="Primary"
     >
       <div className="flex items-stretch h-16 max-w-lg mx-auto px-1">
@@ -3396,14 +3238,10 @@ function BottomNav({ view, catalogMode, canCreate, unreadCount, onFeed, onCommun
               type="button"
               onClick={onCreate}
               aria-label="Log a found or lost item"
-              className="-mt-5 w-14 h-14 rounded-full flex items-center justify-center transition-transform duration-100 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100"
-              style={{
-                background: view === "log" ? "#7A2E2E" : "#9A3F3F",
-                color: "#FBF9D1",
-                boxShadow: "0 0 0 4px #FBF9D1, 0 6px 14px -4px rgba(122, 46, 46, 0.45)",
-              }}
+              className="self-center w-11 h-11 rounded-lg flex items-center justify-center transition-transform duration-100 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100"
+              style={{ background: view === "log" ? "#7A2E2E" : "#9A3F3F", color: "#FFFFFF" }}
             >
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
@@ -3436,7 +3274,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
     { n: "4", title: "Pick it up", body: "Once verified, staff approve release and you collect your item at the office." },
   ];
   return (
-    <div className="min-h-[100dvh]" style={{ background: "#FBF9D1", color: "#2C1414" }}>
+    <div className="min-h-[100dvh]" style={{ background: "#FFFFFF", color: "#2C1414" }}>
       {/* Nav — single line, slim */}
       <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(251,249,209,0.85)", borderBottom: "1px solid #E6CFA9" }}>
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
@@ -3446,7 +3284,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
           <button
             onClick={onGetStarted}
             className="px-4 py-2 text-sm font-semibold rounded-lg transition-all active:scale-[0.98]"
-            style={{ background: "#9A3F3F", color: "#FBF9D1", boxShadow: "0 1px 2px rgba(154,63,63,0.2)" }}
+            style={{ background: "#9A3F3F", color: "#FFFFFF", boxShadow: "0 1px 2px rgba(154,63,63,0.2)" }}
           >
             Sign in
           </button>
@@ -3475,7 +3313,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
             <button
               onClick={onGetStarted}
               className="inline-flex items-center gap-2 px-6 py-3 text-base font-semibold rounded-xl transition-all active:scale-[0.98]"
-              style={{ background: "#9A3F3F", color: "#FBF9D1", boxShadow: "0 4px 14px rgba(154,63,63,0.25)" }}
+              style={{ background: "#9A3F3F", color: "#FFFFFF", boxShadow: "0 4px 14px rgba(154,63,63,0.25)" }}
             >
               Get started
               <IconArrowRight />
@@ -3490,7 +3328,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
             <div className="absolute -inset-4 rounded-3xl opacity-60" aria-hidden="true"
               style={{ background: "radial-gradient(300px circle at 70% 20%, rgba(193,133,109,0.35), transparent 60%)" }} />
             <div className="relative rounded-2xl p-5 rotate-1 hover:rotate-0 transition-transform duration-300"
-              style={{ background: "#FBF9D1", border: "1px solid #C1856D", boxShadow: "0 10px 30px rgba(154,63,63,0.15)" }}>
+              style={{ background: "#FFFFFF", border: "1px solid #C1856D", boxShadow: "0 10px 30px rgba(154,63,63,0.15)" }}>
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: "#F2EBE5", color: "#5C2020", border: "1px solid #D4A896" }}>In office</span>
                 <span className="text-xs" style={{ color: "#9A7070" }}>#FND-2043</span>
@@ -3515,7 +3353,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
       </section>
 
       {/* Trust strip — divided, not cards */}
-      <section style={{ background: "#9A3F3F", color: "#FBF9D1" }}>
+      <section style={{ background: "#9A3F3F", color: "#FFFFFF" }}>
         <div className="max-w-6xl mx-auto px-5 py-10 grid grid-cols-1 sm:grid-cols-3 sm:divide-x" style={{ borderColor: "rgba(255,255,255,0.15)" }}>
           {[
             { k: "Verified", v: "Every item confirmed in-office before it's public" },
@@ -3541,7 +3379,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
             <li key={s.n} className="flex gap-5">
               <div className="flex flex-col items-center">
                 <span className="inline-flex items-center justify-center w-10 h-10 rounded-full text-base font-bold shrink-0"
-                  style={{ background: "#9A3F3F", color: "#FBF9D1" }}>{s.n}</span>
+                  style={{ background: "#9A3F3F", color: "#FFFFFF" }}>{s.n}</span>
                 {i < steps.length - 1 && <span className="w-px flex-1 mt-2" style={{ background: "#E6CFA9" }} />}
               </div>
               <div className="pb-2">
@@ -3566,7 +3404,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
           <button
             onClick={onGetStarted}
             className="relative mt-8 inline-flex items-center gap-2 px-7 py-3.5 text-base font-semibold rounded-xl transition-all active:scale-[0.98]"
-            style={{ background: "#9A3F3F", color: "#FBF9D1", boxShadow: "0 4px 14px rgba(154,63,63,0.25)" }}
+            style={{ background: "#9A3F3F", color: "#FFFFFF", boxShadow: "0 4px 14px rgba(154,63,63,0.25)" }}
           >
             Get started
             <IconArrowRight />
@@ -3604,18 +3442,18 @@ function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: 
   ];
 
   return (
-    <div className="min-h-[100dvh] grid lg:grid-cols-2" style={{ background: "#FBF9D1" }}>
+    <div className="min-h-[100dvh] grid lg:grid-cols-2" style={{ background: "#FFFFFF" }}>
       {/* Brand panel — carries the trust story */}
       <div
         className="relative hidden lg:flex flex-col justify-between p-10 overflow-hidden"
-        style={{ background: "#9A3F3F", color: "#FBF9D1" }}
+        style={{ background: "#9A3F3F", color: "#FFFFFF" }}
       >
         {/* soft layered glows, tinted to the panel hue (no AI-purple) */}
         <div className="pointer-events-none absolute inset-0" aria-hidden="true"
           style={{ background: "radial-gradient(600px circle at 15% 10%, rgba(255,255,255,0.10), transparent 45%), radial-gradient(500px circle at 90% 90%, rgba(193,133,109,0.35), transparent 50%)" }} />
         <div className="relative">
           <span className="text-3xl font-semibold" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
-            <span style={{ color: "#FBF9D1" }}>Found</span><span style={{ color: "#E8B89E" }}>it</span>
+            <span style={{ color: "#FFFFFF" }}>Found</span><span style={{ color: "#E8B89E" }}>it</span>
           </span>
         </div>
         <div className="relative">
@@ -3627,7 +3465,7 @@ function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: 
               <li key={p} className="flex items-start gap-3 text-sm" style={{ color: "#F5ECEC" }}>
                 <span className="mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full shrink-0"
                   style={{ background: "rgba(255,255,255,0.16)" }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FBF9D1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </span>
                 {p}
               </li>
@@ -3667,7 +3505,7 @@ function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: 
             onClick={handleClick}
             disabled={busy}
             className="mt-8 w-full flex items-center justify-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
-            style={{ background: "#FBF9D1", color: "#2C1414", border: "1.5px solid #C1856D", boxShadow: "0 1px 2px rgba(154,63,63,0.08)" }}
+            style={{ background: "#FFFFFF", color: "#2C1414", border: "1.5px solid #C1856D", boxShadow: "0 1px 2px rgba(154,63,63,0.08)" }}
           >
             {busy ? (
               <>
@@ -3707,7 +3545,7 @@ function SignIn({ onSignIn, onBack }: { onSignIn: () => Promise<void>; onBack?: 
 
 // ─── My Profile View ──────────────────────────────────────────────────────────
 
-function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verification, onSubmitVerification, verifiedIds, responseCounts, onViewResponses }: {
+function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verification, onSubmitVerification, verifiedIds }: {
   user: AuthUser;
   items: Item[];
   reposts: Repost[];
@@ -3716,8 +3554,6 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
   verification?: StudentVerification;
   onSubmitVerification: (docType: DocType, file: File) => Promise<string>;
   verifiedIds: Set<string>;
-  responseCounts: Record<string, number>;
-  onViewResponses: (item: Item) => void;
 }) {
   // Merge the user's posts and reposts into one chronological feed (newest first).
   type FeedEntry =
@@ -3766,7 +3602,7 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
           {user.avatar_url ? (
             <img src={user.avatar_url} alt="" className="w-20 h-20 rounded-full object-cover" />
           ) : (
-            <span className="inline-flex items-center justify-center w-20 h-20 rounded-full text-2xl font-semibold shrink-0" style={{ background: "#9A3F3F", color: "#FBF9D1" }} aria-hidden="true">
+            <span className="inline-flex items-center justify-center w-20 h-20 rounded-full text-2xl font-semibold shrink-0" style={{ background: "#9A3F3F", color: "#FFFFFF" }} aria-hidden="true">
               {user.name.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase()}
             </span>
           )}
@@ -3780,16 +3616,16 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
         <p className="mt-0.5 text-sm truncate" style={{ color: "#6B3A3A" }}>{user.email}</p>
 
         {/* Stats row */}
-        <div className="mt-4 flex items-stretch rounded-xl overflow-hidden" style={{ border: "1px solid #C1856D", background: "#E6CFA9" }}>
+        <div className="mt-4 flex items-stretch">
           <div className="flex-1 px-4 py-3 text-center">
             <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{postCount}</p>
             <p className="text-xs" style={{ color: "#6B3A3A" }}>{postCount === 1 ? "Post" : "Posts"}</p>
           </div>
-          <div className="flex-1 px-4 py-3 text-center" style={{ borderLeft: "1px solid #C1856D" }}>
+          <div className="flex-1 px-4 py-3 text-center">
             <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{repostCount}</p>
             <p className="text-xs" style={{ color: "#6B3A3A" }}>{repostCount === 1 ? "Repost" : "Reposts"}</p>
           </div>
-          <div className="flex-1 px-4 py-3 text-center" style={{ borderLeft: "1px solid #C1856D" }}>
+          <div className="flex-1 px-4 py-3 text-center">
             <p className="text-lg font-bold" style={{ color: isVerified ? "#9A3F3F" : "#9A7070" }}>{isVerified ? "Yes" : "No"}</p>
             <p className="text-xs" style={{ color: "#6B3A3A" }}>Verified</p>
           </div>
@@ -3798,40 +3634,39 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
 
       {/* Student verification (Requirement 15) — hidden once verified */}
       {status !== "verified" && (
-      <div className="rounded-xl p-5 mb-6" style={{ background: "#F5ECEC", border: "1px solid #C1856D" }}>
+      <div className="rounded-xl p-5 mb-6" style={{ background: "#C1856D" }}>
         <div className="flex items-center gap-2 mb-1">
           <VerificationBadge size={16} />
           <h2 className="text-sm font-semibold" style={{ color: "#2C1414" }}>Student verification</h2>
         </div>
 
-        <p className="text-sm mb-3" style={{ color: "#6B3A3A" }}>
+        <p className="text-sm mb-3" style={{ color: "#2C1414" }}>
               {status === "rejected"
                 ? "That document wasn't confirmed. You can submit a clearer photo and try again."
-                : "Prove you're a student to get a verified badge. Submit your Student ID, Certificate of Registration, or class schedule — we check it automatically in seconds."}
+                : "Prove you're a student to get a verified badge."}
             </p>
-            <label className="block text-xs font-medium mb-1" style={{ color: "#2C1414" }}>Document type</label>
-            <select
-              value={docType}
-              onChange={e => setDocType(e.target.value as DocType)}
-              className={inputCls + " mb-3"}
-            >
-              <option value="student_id">Student ID</option>
-              <option value="cor">Certificate of Registration (COR)</option>
-              <option value="class_schedule">Class schedule</option>
-            </select>
-            <input ref={verifyFileRef} type="file" accept="image/*" className="hidden" onChange={handleVerifyFile} />
-            <button
-              type="button"
-              onClick={() => verifyFileRef.current?.click()}
-              disabled={verifyBusy}
-              className={btnPrimary + " inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
-            >
-              {verifyBusy ? "Checking…" : "Get verified"}
-            </button>
-        <p className="text-xs mt-2" style={{ color: "#9A7070" }}>
-          Your document image isn't stored — only the result. Photo/biometric matching isn't used.
-        </p>
-        {verifyMsg && <p className="text-xs mt-2" style={{ color: "#6B3A3A" }}>{verifyMsg}</p>}
+            <div className="flex items-center gap-2">
+              <select
+                aria-label="Document type"
+                value={docType}
+                onChange={e => setDocType(e.target.value as DocType)}
+                className={inputCls + " flex-1 min-w-0"}
+              >
+                <option value="student_id">Student ID</option>
+                <option value="cor">Certificate of Registration (COR)</option>
+                <option value="class_schedule">Class schedule</option>
+              </select>
+              <input ref={verifyFileRef} type="file" accept="image/*" className="hidden" onChange={handleVerifyFile} />
+              <button
+                type="button"
+                onClick={() => verifyFileRef.current?.click()}
+                disabled={verifyBusy}
+                className={btnPrimary + " shrink-0 inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"}
+              >
+                {verifyBusy ? "Checking…" : "Get verified"}
+              </button>
+            </div>
+        {verifyMsg && <p className="text-xs mt-2" style={{ color: "#2C1414" }}>{verifyMsg}</p>}
       </div>
       )}
 
@@ -3844,20 +3679,7 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
         <div className="flex flex-col gap-3">
           {feed.map(entry => (
             entry.kind === "post" ? (
-              <div key={entry.item.id} className="flex flex-col gap-2">
-                <ItemCard item={entry.item} role={user.role} />
-                {/* Found posts with a challenge, and every lost post, get a
-                    Responses view so the poster can review who responded. */}
-                {((entry.item.kind !== "lost" && entry.item.challenge && entry.item.challenge.length > 0) || entry.item.kind === "lost") && (
-                  <button
-                    onClick={() => onViewResponses(entry.item)}
-                    className={btnSecondary + " inline-flex items-center gap-1.5 self-start"}
-                  >
-                    <IconShield />
-                    Responses ({responseCounts[entry.item.id] ?? 0})
-                  </button>
-                )}
-              </div>
+              <ItemCard key={entry.item.id} item={entry.item} role={user.role} />
             ) : entry.item ? (
               <RepostCard key={entry.repost.id} repost={entry.repost} item={entry.item} onRemove={() => onRemoveRepost(entry.repost.item_id)} />
             ) : null
@@ -3872,23 +3694,36 @@ function ProfileView({ user, items, reposts, onRemoveRepost, onSignOut, verifica
 
 // ─── Public author profile (Requirement 5c) ──────────────────────────────────
 
-function PublicProfileView({ authorId, authorName, items, currentUserId, onBack }: {
+function PublicProfileView({ authorId, authorName, items, reposts, currentUserId, onBack, onTop = true }: {
   authorId: string;
   authorName: string;
   items: Item[];
+  reposts: Repost[];
   currentUserId: string;
   onBack: () => void;
+  onTop?: boolean; // above the post detail when opened from it; below when a post is opened from here
 }) {
-  const openDetail = useOpenDetail();
   const verified = useIsVerified(authorId);
-  // Same visibility rules as the catalog, newest first.
-  const posts = items
-    .filter(i => i.finder_id === authorId && (
-      i.status === "in_office" || i.status === "approved_for_pickup" ||
-      (i.status === "pending_intake" && i.finder_id === currentUserId)
-    ))
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
-  const name = posts[0]?.finder_name || authorName;
+  const profile = useContext(ProfilesContext)[authorId];
+  // Same visibility rules as the catalog.
+  const visible = (i: Item) =>
+    i.status === "in_office" || i.status === "approved_for_pickup" ||
+    (i.status === "pending_intake" && i.finder_id === currentUserId);
+  type FeedEntry =
+    | { kind: "post"; created_at: string; item: Item }
+    | { kind: "repost"; created_at: string; repost: Repost; item: Item };
+  const feed: FeedEntry[] = [
+    ...items.filter(i => i.finder_id === authorId && visible(i))
+      .map(i => ({ kind: "post" as const, created_at: i.created_at, item: i })),
+    ...reposts.filter(r => r.user_id === authorId)
+      .flatMap(r => {
+        const item = items.find(i => i.id === r.item_id);
+        return item && visible(item) ? [{ kind: "repost" as const, created_at: r.created_at, repost: r, item }] : [];
+      }),
+  ].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const postCount = feed.filter(e => e.kind === "post").length;
+  const repostCount = feed.length - postCount;
+  const name = profile?.name || items.find(i => i.finder_id === authorId)?.finder_name || authorName;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onBack(); }
@@ -3897,8 +3732,8 @@ function PublicProfileView({ authorId, authorName, items, currentUserId, onBack 
   }, [onBack]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "#FBF9D1" }}>
-      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FBF9D1", borderBottom: "1px solid #C1856D" }}>
+    <div className={`fixed inset-0 ${onTop ? "z-[60]" : "z-[45]"} flex flex-col`} style={{ background: "#FFFFFF" }}>
+      <header className="sticky top-0 z-10 flex items-center gap-3 px-4 h-14 shrink-0" style={{ background: "#FFFFFF", borderBottom: "1px solid #C1856D" }}>
         <button onClick={onBack} aria-label="Back" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: "#6B3A3A" }}>
           <IconArrowLeft /> Back
         </button>
@@ -3906,51 +3741,38 @@ function PublicProfileView({ authorId, authorName, items, currentUserId, onBack 
       </header>
       <div className="flex-1 overflow-y-auto scroll-area">
         <div className="max-w-2xl mx-auto px-4 py-6">
-          <div className="flex items-center gap-4 pb-5 mb-2" style={{ borderBottom: "1px solid #C1856D" }}>
-            <Avatar id={authorId} name={name} size={64} />
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <h1 className="text-xl font-semibold truncate" style={{ color: "#2C1414" }}>{name}</h1>
-                {verified && <VerificationBadge size={16} />}
+          {/* Header — same layout as your own profile */}
+          <div className="mb-6">
+            <Avatar id={authorId} name={name} size={80} />
+            <h1 className="mt-4 text-2xl font-bold flex items-center gap-2" style={{ color: "#2C1414" }}>
+              {name}
+              {verified && <VerificationBadge size={20} />}
+            </h1>
+            <div className="mt-4 flex items-stretch">
+              <div className="flex-1 px-4 py-3 text-center">
+                <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{postCount}</p>
+                <p className="text-xs" style={{ color: "#6B3A3A" }}>{postCount === 1 ? "Post" : "Posts"}</p>
               </div>
-              {verified && <p className="text-xs font-medium" style={{ color: "#9A3F3F" }}>Verified student</p>}
-              <p className="text-sm mt-0.5" style={{ color: "#6B3A3A" }}>{posts.length} {posts.length === 1 ? "post" : "posts"}</p>
+              <div className="flex-1 px-4 py-3 text-center">
+                <p className="text-lg font-bold" style={{ color: "#2C1414" }}>{repostCount}</p>
+                <p className="text-xs" style={{ color: "#6B3A3A" }}>{repostCount === 1 ? "Repost" : "Reposts"}</p>
+              </div>
+              <div className="flex-1 px-4 py-3 text-center">
+                <p className="text-lg font-bold" style={{ color: verified ? "#9A3F3F" : "#9A7070" }}>{verified ? "Yes" : "No"}</p>
+                <p className="text-xs" style={{ color: "#6B3A3A" }}>Verified</p>
+              </div>
             </div>
           </div>
-          {posts.length === 0 ? (
-            <p className="text-sm py-10 text-center" style={{ color: "#9A7070" }}>No public posts yet.</p>
+
+          {feed.length === 0 ? (
+            <div className="text-center py-16 rounded-xl" style={{ border: "1px dashed #C1856D" }}>
+              <p className="text-sm font-medium" style={{ color: "#6B3A3A" }}>No posts yet</p>
+            </div>
           ) : (
-            <div className="flex flex-col">
-              {posts.map(item => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => openDetail(item)}
-                  className="text-left py-4 flex gap-3"
-                  style={{ borderBottom: "1px solid #C1856D" }}
-                >
-                  <div className="flex-1 min-w-0 flex flex-col gap-1">
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                        style={item.kind === "lost" ? { background: "#F5ECEC", color: "#9A3F3F" } : { background: "#E6CFA9", color: "#5C2020" }}
-                      >
-                        {item.kind === "lost" ? "Lost" : "Found"}
-                      </span>
-                      <StatusBadge status={item.status} />
-                      <span className="text-xs" style={{ color: "#9A7070" }}>{postedLabel(item.created_at)}</span>
-                    </div>
-                    <p className="text-sm font-semibold" style={{ color: "#2C1414" }}>{item.title}</p>
-                    <p className="text-xs line-clamp-2" style={{ color: "#6B3A3A" }}>{item.description}</p>
-                    <span className="flex items-center gap-1 text-xs" style={{ color: "#6B3A3A" }}><IconMapPin />{item.location_found}</span>
-                  </div>
-                  {item.image_url && (
-                    <div className="shrink-0 w-16 h-16 rounded-lg overflow-hidden" style={{ background: "#D4B890" }}>
-                      <img src={item.image_url} alt={item.title} className="w-full h-full object-cover" />
-                    </div>
-                  )}
-                </button>
-              ))}
+            <div className="flex flex-col gap-3">
+              {feed.map(entry => entry.kind === "post"
+                ? <ItemCard key={entry.item.id} item={entry.item} role="owner" />
+                : <RepostCard key={entry.repost.id} repost={entry.repost} item={entry.item} />)}
             </div>
           )}
         </div>
@@ -4004,7 +3826,9 @@ export default function App() {
   const [upvotedIds, setUpvotedIds] = usePersistentState<Set<string>>("upvotedIds", new Set(), setSerializer);
   const [upvoteRows, setUpvoteRows] = useState<DbUpvote[]>([]); // shared upvotes (db mode)
   const [authorProfile, setAuthorProfile] = useState<{ id: string; name: string } | null>(null);
-  const [catalogMode, setCatalogMode] = usePersistentState<CatalogMode>("catalogMode", "feed");
+  const [profiles, setProfiles] = useState<Record<string, DbProfile>>({});
+  // Whichever full-screen view (profile or post) was opened last sits on top.
+  const [profileOnTop, setProfileOnTop] = useState(true);
   const [reposts, setReposts] = usePersistentState<Repost[]>("reposts", []);
   const [comments, setComments] = usePersistentState<Record<string, ItemComment[]>>("comments", {});
   const [verifications, setVerifications] = usePersistentState<Record<string, StudentVerification>>("verifications", {});
@@ -4012,10 +3836,9 @@ export default function App() {
   const [notifications, setNotifications] = usePersistentState<AppNotification[]>("notifications", []);
   const [repostingItem, setRepostingItem] = useState<Item | null>(null);
   const [challengeItem, setChallengeItem] = useState<Item | null>(null); // item whose challenge is being answered
-  const [responsesItem, setResponsesItem] = useState<Item | null>(null); // finder viewing responses
   const [detailItem, setDetailItem] = useState<Item | null>(null); // full-screen post detail
   const [detailInitialAction, setDetailInitialAction] = useState(false); // open action form immediately
-  const [foundThisItem, setFoundThisItem] = useState<Item | null>(null); // lost-post "I found this" flow
+  useEffect(() => { if (detailItem) setProfileOnTop(false); }, [detailItem]);
   const [foundThisReportId, setFoundThisReportId] = useState<string | null>(null); // specific report to open (owner picking from list)
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
@@ -4057,6 +3880,10 @@ export default function App() {
     listNotifications().then(rows => { if (active) setNotifications(rows); });
     listClaims().then(rows => { if (active) setClaims(rows); });
     listUpvotes().then(rows => { if (active) setUpvoteRows(rows); });
+    // Save my name + photo so others see it, then load everyone's.
+    upsertProfile({ id: user.id, name: user.name, avatar_url: user.avatar_url })
+      .then(() => listProfiles())
+      .then(map => { if (active) setProfiles(map); });
     // Realtime subscriptions keep everyone in sync.
     const unsubItems = subscribeItems(rows => setItems(rows));
     const unsubComments = subscribeComments(map => setComments(map));
@@ -4436,10 +4263,6 @@ export default function App() {
     addClaimMessage(claimId, message, "staff");
   }
 
-  function handleOwnerReply(claimId: string, message: string) {
-    addClaimMessage(claimId, message, "owner");
-  }
-
   function handleFinderSubmit(partial: Partial<Item>) {
     const kind = partial.kind ?? "found";
     const newItem: Item = {
@@ -4502,7 +4325,6 @@ export default function App() {
     ...items.map(i => queuedIds.has(i.id) ? { ...i, pending_sync: true } : i),
   ];
 
-  const ownerClaims = user ? claims.filter(c => c.owner_id === user.id) : [];
   const repostCounts: Record<string, number> = {};
   for (const r of reposts) repostCounts[r.item_id] = (repostCounts[r.item_id] ?? 0) + 1;
   const myRepostItemIds = new Set(user ? reposts.filter(r => r.user_id === user.id).map(r => r.item_id) : []);
@@ -4510,7 +4332,7 @@ export default function App() {
   // Auth gate: loader while restoring, sign-in screen when signed out.
   if (auth.status === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "#FBF9D1" }}>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#FFFFFF" }}>
         <span className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#9A3F3F", borderTopColor: "transparent" }} />
       </div>
     );
@@ -4529,9 +4351,10 @@ export default function App() {
     <VerifiedContext.Provider value={verifiedIds}>
     <OpenDetailContext.Provider value={setDetailItem}>
     <LostFlowContext.Provider value={{ currentUserId: user?.id ?? null, onFoundThis: handleFoundThisClick }}>
-    <OpenAuthorContext.Provider value={(id, name) => setAuthorProfile({ id, name })}>
+    <OpenAuthorContext.Provider value={(id, name) => { setAuthorProfile({ id, name }); setProfileOnTop(true); }}>
     <UpvoteOthersContext.Provider value={othersUpvotes}>
-    <div className="min-h-screen" style={{ background: "#FBF9D1" }}>
+    <ProfilesContext.Provider value={{ ...profiles, [user.id]: { name: user.name, avatar_url: user.avatar_url } }}>
+    <div className="min-h-screen" style={{ background: "#FFFFFF" }}>
       <Nav view={view} setView={setView} role={role} user={user} search={search} setSearch={setSearch} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} offlineQueueCount={offlineQueueCount} unreadCount={unreadCount} />
       {syncFailures.length > 0 && (
         <div className="text-xs font-medium px-4 py-2 flex items-center gap-2" style={{ background: "#F5ECEC", color: "#9A3F3F", borderBottom: "1px solid #C1856D" }}>
@@ -4542,11 +4365,10 @@ export default function App() {
         </div>
       )}
       <main className="pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
-        {view === "catalog" && <CatalogView items={displayItems} role={role} user={user} search={search} categoryFilter={categoryFilter} onClearFilters={() => { setSearch(""); setCategoryFilter("All"); }} mode={catalogMode} onModeChange={setCatalogMode} onClaim={handleClaimClick} onUpvote={handleUpvote} upvotedIds={myUpvotedIds} onRepost={setRepostingItem} repostCounts={repostCounts} myRepostItemIds={myRepostItemIds} reposts={reposts} onShare={handleShare} comments={comments} onAddComment={handleAddComment} onAddReply={handleAddReply} challengeResponseCounts={responseCounts} />}
+        {view === "catalog" && <CatalogView items={displayItems} role={role} user={user} search={search} categoryFilter={categoryFilter} onClearFilters={() => { setSearch(""); setCategoryFilter("All"); }} onClaim={handleClaimClick} onUpvote={handleUpvote} upvotedIds={myUpvotedIds} onRepost={setRepostingItem} repostCounts={repostCounts} myRepostItemIds={myRepostItemIds} reposts={reposts} onShare={handleShare} comments={comments} onAddComment={handleAddComment} onAddReply={handleAddReply} challengeResponseCounts={responseCounts} />}
         {view === "gallery" && <GalleryView items={displayItems} user={user} />}
-        {view === "log" && <FinderForm onSubmit={handleFinderSubmit} />}
-        {view === "claims" && <OwnerClaimsView claims={ownerClaims} items={items} onReply={handleOwnerReply} />}
-        {view === "profile" && <ProfileView user={user} items={displayItems} reposts={reposts} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} verification={myVerification} onSubmitVerification={handleSubmitVerification} verifiedIds={verifiedIds} responseCounts={responseCounts} onViewResponses={setResponsesItem} />}
+        {view === "log" && <FinderForm onSubmit={handleFinderSubmit} user={user} />}
+        {view === "profile" && <ProfileView user={user} items={displayItems} reposts={reposts} onRemoveRepost={handleRemoveRepost} onSignOut={handleSignOut} verification={myVerification} onSubmitVerification={handleSubmitVerification} verifiedIds={verifiedIds} />}
         {view === "staff" && <StaffDashboard items={items} claims={claims} allItems={items} onStatusChange={handleStatusChange} onClaimAction={handleClaimAction} onStaffReply={handleStaffReply} />}
         {view === "notifications" && (
           <NotificationsView
@@ -4554,7 +4376,9 @@ export default function App() {
             onOpen={n => {
               const it = items.find(i => i.id === n.item_id);
               if (it) {
-                // Always open the full-screen PostDetail for uniformity.
+                // Always open the full-screen PostDetail; land on the ownership
+                // panel when the notification is about a report.
+                setDetailInitialAction(!!n.response_id);
                 setDetailItem(it);
                 // Also pre-select a specific report if the notification links to one.
                 if (n.response_id) setFoundThisReportId(n.response_id);
@@ -4566,11 +4390,10 @@ export default function App() {
 
       <BottomNav
         view={view}
-        catalogMode={catalogMode}
         canCreate={role !== "staff"}
         unreadCount={unreadCount}
-        onFeed={() => { setCatalogMode("feed"); setView("catalog"); }}
-        onCommunity={() => { setCatalogMode("community"); setView("catalog"); }}
+        onFeed={() => setView("catalog")}
+        onCommunity={() => setView("gallery")}
         onCreate={() => setView("log")}
         onAlerts={() => setView("notifications")}
         onProfile={() => setView("profile")}
@@ -4582,27 +4405,6 @@ export default function App() {
           onClose={() => setChallengeItem(null)}
           onSubmit={(answers, note) => handleSubmitChallengeResponse(challengeItem.id, answers, note)}
         />
-      )}
-      {responsesItem && (
-        responsesItem.kind === "lost" ? (
-          <LostResponsesModal
-            item={responsesItem}
-            reports={challengeResponses.filter(r => r.item_id === responsesItem.id && r.kind === "lost")}
-            verifiedIds={verifiedIds}
-            onClose={() => setResponsesItem(null)}
-            onOpenReport={reportId => { const it = responsesItem; setResponsesItem(null); setFoundThisReportId(reportId); setFoundThisItem(it); }}
-          />
-        ) : (
-          <ChallengeResponsesModal
-            item={responsesItem}
-            responses={challengeResponses.filter(r => r.item_id === responsesItem.id)}
-            verifiedIds={verifiedIds}
-            onClose={() => setResponsesItem(null)}
-            onApprove={id => handleChallengeDecision(id, "approved")}
-            onReject={id => handleChallengeDecision(id, "rejected")}
-            onEscalate={handleEscalateChallengeResponse}
-          />
-        )
       )}
       {repostingItem && (
         <RepostDialog
@@ -4618,8 +4420,10 @@ export default function App() {
           authorId={authorProfile.id}
           authorName={authorProfile.name}
           items={displayItems}
+          reposts={reposts}
           currentUserId={user.id}
           onBack={() => setAuthorProfile(null)}
+          onTop={profileOnTop}
         />
       )}
       {activeDetailItem && (
@@ -4628,7 +4432,8 @@ export default function App() {
           item={activeDetailItem}
           comments={comments[activeDetailItem.id] ?? []}
           currentUserId={user.id}
-          onBack={() => { setDetailItem(null); setDetailInitialAction(false); }}
+          onBack={() => { setDetailItem(null); setDetailInitialAction(false); setFoundThisReportId(null); }}
+          initialReportId={foundThisReportId}
           onAddComment={(msg, visibility) => handleAddComment(activeDetailItem.id, msg, visibility)}
           onAddReply={(commentId, msg) => handleAddReply(activeDetailItem.id, commentId, msg)}
           onUpvote={handleUpvote}
@@ -4645,30 +4450,12 @@ export default function App() {
           onOwnerAnswer={handleOwnerAnswer}
           onApprove={id => handleChallengeDecision(id, "approved")}
           onReject={id => handleChallengeDecision(id, "rejected")}
+          onEscalate={handleEscalateChallengeResponse}
           initialActionOpen={detailInitialAction}
         />
       )}
-      {foundThisItem && user && (
-        <LostFlowModal
-          item={foundThisItem}
-          currentUserId={user.id}
-          report={
-            // Prefer an explicitly chosen report (owner picking from the list or
-            // opening a notification); else find this user's own report.
-            (foundThisReportId && challengeResponses.find(r => r.id === foundThisReportId)) ||
-            challengeResponses.find(r =>
-              r.item_id === foundThisItem.id && r.kind === "lost" &&
-              (r.responder_id === user.id || r.owner_id === user.id),
-            )
-          }
-          onClose={() => { setFoundThisItem(null); setFoundThisReportId(null); }}
-          onSubmitReport={handleSubmitFoundReport}
-          onOwnerAnswer={handleOwnerAnswer}
-          onApprove={id => handleChallengeDecision(id, "approved")}
-          onReject={id => handleChallengeDecision(id, "rejected")}
-        />
-      )}
     </div>
+    </ProfilesContext.Provider>
     </UpvoteOthersContext.Provider>
     </OpenAuthorContext.Provider>
     </LostFlowContext.Provider>

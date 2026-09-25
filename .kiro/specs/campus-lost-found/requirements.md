@@ -38,20 +38,49 @@ is captured in `design.md`.
 optional photo, so that I can hand it to the office and have it tracked.
 
 #### Acceptance Criteria
+0a. THE "Log Item" view SHALL be a **post composer that looks like the post it
+   will create**: the signed-in user's profile photo and name, "just now", and a
+   tappable **Found / Lost** tag (which is the mode toggle) in the post header;
+   the caption typed directly into the post (first line styled as the title),
+   with grey template hints rather than prefilled text; a category chip; a 📍
+   location row (there is no time field — the item's time is recorded as the
+   moment it is posted); and the photo area where the post image goes,
+   showing the image once chosen. Below the post: the verification form card
+   (Found only), the private note to staff, and a **Post** button. The
+   caption-import action is a plain ✨ icon at the bottom-right of the caption
+   area; it opens the caption import as a pop-up dialog over a dimmed
+   backdrop, styled like the verification-form card (white, sand border,
+   rounded, heading + close control). It closes on ✕, backdrop click, or
+   Escape, and closes automatically after a successful fill.
 0. THE "Log Item" view SHALL be titled "Log a Found/Lost Item" and SHALL offer a
-   **Found / Lost** mode toggle at the top. "Found" is the default and drives the
+   **Found / Lost** mode toggle (the tag in the composer's post header, 0a). "Found" is the default and drives the
    found-item flow below. "Lost" switches the form to post a missing notice
-   (Requirement 9) that collects the SAME fields as the found form — title,
-   category, location lost, time lost, description, an optional private note to
-   staff, and an optional photo — EXCEPT the ownership challenge (which does not
+   (Requirement 9) that collects the SAME fields as the found form — caption,
+   category, location lost, an optional private note to staff, and an
+   optional photo — EXCEPT the ownership challenge (which does not
    apply to a lost post). It SHALL NOT show drop-off/intake instructions, since a
    lost post is a passive notice, not an item the office holds.
 1. WHEN a finder opens the "Log Item" view in **Found** mode THEN the system SHALL
-   present a form with fields for title, category, location found, time found,
-   description, a private note to staff, an optional ownership challenge, and a
-   photo.
-2. WHEN a finder submits the Found form THEN the system SHALL require title,
-   category, location found, time found, and description before accepting the
+   present a form with fields for caption, category, location found, a private
+   note to staff, an optional ownership challenge, and a photo. The time found
+   is recorded automatically as the time of posting.
+1a. THE form SHALL use a single multi-line **Caption** field instead of separate
+   title and description fields. On submit, the first non-empty line of the
+   caption becomes the item's title and the remaining lines (trimmed) become its
+   description, which may be empty. (No helper text is shown under the field.)
+1b. THE location field SHALL offer the PUP campus places from the official
+   vicinity map (the 50 numbered places, e.g. "Main Academic Building", "Ninoy
+   Aquino Learning Resource Center", "Oval", "Lagoon Park") as suggestions: on
+   focus it shows the list, typing filters it (case-insensitive, matching any
+   part of the name), and picking one fills the field. The user MAY instead
+   keep their own typed text; the field accepts any value. Arrow keys move
+   through suggestions, Enter picks, Escape closes the list.
+   WHILE typing, the caption's first line SHALL display bold (as the post title
+   will) and the following lines in normal weight; Enter at the end of the
+   first line continues on the next line, and Backspace at the start of the
+   second line joins it back onto the first.
+2. WHEN a finder submits the Found form THEN the system SHALL require the
+   caption (non-empty), category, and location found before accepting the
    submission.
 3. WHEN a finder submits a valid Found form THEN the system SHALL create an item
    with status `pending_intake`.
@@ -65,6 +94,11 @@ optional photo, so that I can hand it to the office and have it tracked.
    JPEG, longest side capped at 1600px). Re-encoding drops all EXIF/GPS metadata,
    so only the re-encoded image is ever stored. IF the file cannot be decoded as
    an image THEN the system SHALL reject it with a clear message.
+4a. THE photo area SHALL accept a photo either by clicking to pick a file or by
+   dragging an image file onto it, in both Found and Lost mode. WHILE a file is
+   dragged over it THE area SHALL highlight and read "Drop photo here". A
+   dropped file goes through the same re-encode as a picked one; only the
+   first file is used when several are dropped.
 5. WHEN an item is created THEN the system SHALL confirm the log and instruct the
    finder to drop the item at the admin office to complete intake.
 6. WHERE the private note field is used THE system SHALL treat it as
@@ -125,8 +159,11 @@ holding, so that I can find my lost item without a noisy social feed.
    drive the catalog filtering; it SHALL display the typed text clearly.
 8. Logging a found item is initiated from the header "+" button (Requirement
    11a); the catalog SHALL NOT show a separate composer prompt.
-9. THE catalog SHALL offer a view mode toggle between **Feed** (standard post list)
-   and **Community** (a photo-centric grid view). The Community view SHALL
+9. THE photo-centric grid is the **Gallery** view (Requirement 19). The mobile
+   bottom bar's **Community** tab and the header's Gallery icon both open it,
+   so it stays a photo grid at every screen width (resizing only re-flows its
+   columns). The catalog (Feed) is always the post list and SHALL NOT show a
+   Feed/Community toggle. The Community view SHALL
    prioritize item photos in a responsive gallery with minimal overlay (title,
    Lost/Found tag, location) to help owners rapidly scan visually for their lost
    belongings. Clicking any item in Community view SHALL open its full post detail.
@@ -143,12 +180,12 @@ that I can quickly scan who posted it, when, and what it is.
 2. WHERE the post is 7 days old or newer THE system SHALL show a relative label
    ("just now", "Nh ago", "Nd ago"); WHERE it is older than 7 days THE system
    SHALL show the full date (e.g. "Sep 14, 2026").
-3. THE item card SHALL show a title, a description, the found location, and a
-   status indicator shown as an icon.
+3. THE item card SHALL show a title, a description, and the found location. It
+   SHALL NOT show a status icon (the post detail view doesn't either).
 4. THE item card SHALL provide an action row with upvote, comment, repost, and
-   share controls, aligned on a single row. Those controls SHALL use a
-   transparent fill and a terracotta outline (no solid pink/cream pill fill), so
-   the cream page color shows through.
+   share controls, aligned on a single row. Those controls SHALL be icon-only
+   (with their count beside the icon): no border, outline, or fill. The active
+   state (upvoted, reposted) is shown by the accent color.
 5. WHERE the item is claimable by the current role THE system SHALL show a
    found-post action labeled **"I lost it"** (Requirement 16) or, on a lost post,
    **"I found it"** (Requirement 17), aligned to the bottom-right of the card.
@@ -233,7 +270,27 @@ Reply (branching / nested):
     structure is visible.
 19. THE post detail view SHALL render the full item's action row (upvote, repost,
     share), and those controls SHALL work the same as on the card. The "I lost
-    it" / "I found it" button in the detail view SHALL open the inline form. Where the item is eligible for action ("I found it" or "I lost it"),
+    it" / "I found it" button in the detail view SHALL open the inline form.
+19a. BELOW the post, the detail view SHALL show a row with the comment count
+    ("N comments") on the left and, where the user can act on the post or
+    already has an ownership flow on it, an icon-only document button (no
+    text, no outline) on the right. Both are clickable and switch what shows
+    below the row: the comment count shows the comment thread; the document
+    icon shows the ownership panel. The ownership panel is the inline form
+    when the user can start one (the claim form on a found post, the finder's
+    challenge-question form on a lost post), or otherwise the status/review of
+    their existing flow (their claim or found report and its status; on the
+    user's own lost post, the finders' reports with answer fields). Only one
+    shows at a time; clicking the document icon again returns to the comments.
+    The active control is shown in the accent color. The thread shows by
+    default; the ownership panel shows when the view was opened from an "I
+    lost it" / "I found it" action or from a notification about a report.
+19b. WHERE the ownership panel holds something waiting on the current user —
+    on their own lost post, a finder's report in `awaiting_owner`; on a lost
+    post they reported, their report in `answered` (owner's answers to
+    approve or reject); on their own found post, a claim in `pending` — THE document icon SHALL show an accent-colored dot,
+    and the detail view SHALL open on the ownership panel instead of the
+    comments. Where the item is eligible for action ("I found it" or "I lost it"),
     the action form SHALL be rendered inline directly below the post body and above
     the comment thread, so the user can see and reference the full post details
     while answering or challenging.
@@ -263,12 +320,20 @@ that I can view their public profile and see what else they have posted.
 
 #### Acceptance Criteria
 1. WHEN a user clicks on an avatar or author name on an item card, post detail,
-   repost card, or comment thread THEN the system SHALL open a public author
-   profile view.
-2. THE author profile view SHALL display the author's avatar, display name,
-   verified student status badge (if verified), and total count of public posts.
-3. THE author profile view SHALL display a chronological list of all public items
-   logged by that user.
+   repost card, comment thread, or a verification form opened by the owner
+   (which shows the finder's avatar next to their name) THEN the system SHALL
+   open a public author profile view.
+2. THE author profile view SHALL use the same layout as the user's own profile
+   (Requirement 5b): a large profile photo, display name with the verified
+   student badge (if verified), and a stats row (Posts, Reposts, Verified
+   Yes/No). It SHALL NOT show the author's email, a sign-out control, or the
+   student-verification form.
+3. THE author profile view SHALL list the author's public posts and reposts,
+   newest first, rendered as the same post cards used in the feed.
+3a. EVERY avatar in the app SHALL show the person's Google profile photo when
+   one is known, falling back to their initials. Each signed-in user's name and
+   photo are saved to a shared profile record on sign-in so others can see
+   them.
 4. THE author profile view SHALL provide a Back control to return to the previous
    view without losing place.
 
@@ -312,7 +377,12 @@ answered and decide — or hand the decision to staff.
 #### Acceptance Criteria
 1. WHEN logging a found item THE system SHALL let the finder optionally add an
    **Ownership Challenge**: an ordered list of short-text questions (each a free
-   prompt), with add/remove controls. The challenge is optional.
+   prompt), with add/remove controls. The challenge is optional. On the Log
+   form it uses the same verification-form builder as Requirement 17.2: a
+   dashed "Create verification form" card that opens the builder card (sample
+   question, text + pen edit-in-place, answer-box preview, ✕, "+ Add
+   question"), with a **Remove** control that discards it and returns to the
+   dashed card.
 2. EVERY found item card SHALL show a **"Prove it's yours"** action (for non-staff
    users). Activating it opens the prove-ownership form:
    - WHERE the item HAS an Ownership Challenge, the form SHALL render the finder's
@@ -324,10 +394,14 @@ answered and decide — or hand the decision to staff.
    **challenge response** attributed to the signed-in user (name + answers +
    optional note + timestamp) with status `pending`, and SHALL confirm
    submission.
-4. THE finder SHALL see the responses to their own item's challenge on their post
-   (in Profile → Your posts): a responses view listing each responder (name, and
-   verified badge if applicable), their answer to each question, their optional
-   note, and the total response count. Responses SHALL be visible only to the
+4. THE finder SHALL see the responses to their own item's challenge in that
+   post's detail view, under the document icon (Requirement 5.19a): one
+   rectangular card per claim (responder photo and name, number of answers,
+   status, relative time; pending ones marked), and activating a card opens it
+   with the responder's photo (opens their profile), name, verified badge if
+   applicable, each question with their answer in a read-only answer box, and
+   their optional note. The Profile does not show a separate "Responses"
+   button. Responses SHALL be visible only to the
    finder and staff, not to other users.
 5. FOR each response THE finder SHALL be able to **Approve** (this is the owner),
    **Reject**, or **Send to staff** (escalate to the normal staff claim review).
@@ -355,13 +429,40 @@ so I can safely return it.
 2. WHEN a user activates "I found this" THEN the system SHALL open a form where
    the finder authors **their own challenge questions** (short text) and an
    optional **note**, then submits a **found report** with status
-   `awaiting_owner`.
+   `awaiting_owner`. In the post detail's ownership panel (Requirement 5.19a)
+   this is a two-step builder:
+   - First the panel shows a single rectangular **"Create verification form"**
+     button. Activating it opens the builder in the same panel.
+   - The builder opens with one sample question already added: "What is the
+     color of the item?". Each question is shown as numbered plain text (not an
+     input) followed by a pen (edit) icon, with a small, non-editable answer
+     box under it previewing where the owner will answer, and a remove (✕)
+     control on the right.
+   - Activating the pen makes the question text editable in place, with no
+     visible input box (only a caret, like typing a chat message). Enter or
+     leaving the text saves; Escape cancels; saving empty text keeps the
+     previous question.
+   - A **"+ Add question"** link (no input box) appends a new numbered question
+     already in that in-place edit mode; if it's saved empty (or Escape is
+     pressed) the new question is removed.
+   - An optional note to the owner, then **Send to owner** (disabled until at
+     least one question is added) and **Cancel** (back to the first step,
+     discarding the draft).
 3. WHEN a found report is submitted THEN the system SHALL notify the lost post's
    **owner** (Requirement 18) that someone found their item and needs them to
    answer to verify.
 4. WHEN the owner opens the found report THEN the system SHALL show the finder's
    questions with answer fields; the owner fills the answers and submits, moving
-   the report to `answered`.
+   the report to `answered`. In the post detail's ownership panel the owner
+   first sees one rectangular card per received verification form (finder
+   name, number of questions, status, relative time; cards needing an answer
+   are marked). Activating a card opens that form in the same panel: each
+   question as plain text with an answer field under it, an optional note to
+   the finder, and **Submit answers**, plus a back control to the list of
+   cards. Answered, approved, or rejected forms open read-only with the
+   answers given. WHERE a report has no questions (sent before
+   questions were required) THE system SHALL show the finder's note as the
+   prompt and a required "Your answer" field, stored as the owner's note.
 5. WHEN the owner answers THEN the system SHALL notify the **finder** that the
    owner responded.
 6. WHEN the finder reopens "I found this" (or the report from a notification)
@@ -369,12 +470,21 @@ so I can safely return it.
    **Approve** (→ `approved`) or **Reject** (→ `rejected`).
 7. THE found report SHALL be visible only to the finder who created it and the
    lost post's owner.
-8. THE post detail view SHALL show the report flow for the current user inline:
+8. THE post detail view SHALL show the report flow for the current user in the
+   ownership panel under the document icon (Requirement 5.19a):
    the lost post's owner sees each report with answer fields while it is
    `awaiting_owner`; the finder sees their report's status and, once `answered`,
    the owner's answers with Approve / Reject. Opening a notification about a
    report opens this post detail. A user who already has a report or ownership
    claim on a post SHALL see its status instead of a new blank form.
+9. IN every status, the reporter's view of their own found report SHALL show
+   what they submitted in the same form layout they built: each question as
+   numbered text with a read-only answer box under it, holding the owner's
+   answer once given or a muted "Waiting for the owner's answer" until then,
+   followed by their note, if any. The same layout is used wherever submitted
+   answers are shown read-only.
+   Likewise a claimant's view of their own ownership claim on a found post
+   SHALL show each question with the answer they gave and their note.
 
 ### Requirement 18 — Notifications
 
@@ -397,9 +507,13 @@ me (someone found my lost item, or an owner answered my questions), so I can act
 of all posts so I can quickly scan by image without reading every caption.
 
 #### Acceptance Criteria
-1. THE navigation SHALL provide a **Gallery** view alongside the Catalog.
-2. THE Gallery SHALL display items that have photos in a 2-column masonry grid,
-   photo-first, with minimal text overlay (Found/Lost tag + title only).
+1. THE app SHALL provide a **Gallery** view alongside the Catalog, opened from
+   the header's Gallery icon on wide screens (Requirement 11a.7).
+2. THE Gallery SHALL display items that have photos in a responsive masonry
+   grid, photo-first, with minimal text overlay (Found/Lost tag + title only).
+   The number of columns SHALL follow the screen width and re-flow live when
+   the window is resized: 2 columns on phones, 3 from 640px, 4 from 1024px,
+   and 5 from 1280px, with the grid using the wider page width on desktop.
 3. WHERE an item has no photo it SHALL be omitted from the Gallery.
 4. WHEN a user taps a gallery tile THEN the system SHALL open the full-screen
    post detail for that item.
@@ -531,9 +645,10 @@ finder, owner, and staff experiences.
 account are always reachable.
 
 #### Acceptance Criteria
-1. THE header SHALL show, left to right: a hamburger (3-line) menu button, the
-   brand/logo, a centered search field, and on the right a "+" create icon-button
-   and the user's profile avatar.
+1. THE header SHALL show, left to right: the brand/logo, the search control,
+   and on the right a "+" create icon-button, a Gallery (grid) icon-button, the
+   notifications bell, and the user's profile avatar. There is no hamburger
+   menu or sidebar.
 2. THE "+" button SHALL open the Log Found Item form and SHALL NOT show a
    "Create" text label; it is icon-only.
 3. THE header SHALL NOT include a chat/messages icon. On wide screens it SHALL
@@ -542,25 +657,27 @@ account are always reachable.
 5. THE header search SHALL be the single source of the catalog search query, and
    a category filter (All, Electronics, …) SHALL sit next to the search field in
    the header and drive the catalog filtering.
-6. THE navigation destinations (Catalog, Log Item, Missing, My Claims, Staff)
-   SHALL live in a left sidebar, NOT in a top row.
-7. WHEN the user clicks the hamburger button THEN the system SHALL open the left
-   sidebar; clicking the overlay or a destination SHALL close it.
-8. THE sidebar SHALL show only the destinations permitted for the user's role and
-   SHALL highlight the current section.
+6. ~~Left sidebar with navigation destinations~~ — removed. Navigation is the
+   header (brand → catalog, search, "+", Gallery, bell, avatar) on wide
+   screens and the bottom tab bar (9) on narrow screens. The "My Claims" view
+   is removed.
+7. THE Gallery icon-button SHALL sit directly after "+" and open the Gallery
+   (Requirement 19), highlighted in the accent color while the Gallery is open.
+   Like "+", it is shown on wide screens only; on narrow screens the bottom
+   bar's Community tab covers the photo grid.
+8. ~~Sidebar role filtering~~ — removed with the sidebar.
 9. ON narrow screens (below 768px) THE app SHALL show a fixed bottom tab bar with,
-   left to right: **Feed**, **Community**, a raised circular **+** button,
+   left to right: **Feed**, **Community**, a square red **+** button,
    **Alerts**, and **Profile**. Each tab has an icon above a short label.
-   - Feed and Community open the catalog in that layout (Requirement 3.9); the
-     catalog's own Feed/Community toggle is hidden on narrow screens.
+   - Feed opens the catalog; Community opens the Gallery (Requirement 3.9).
    - "+" opens the Log a Found/Lost Item form. WHERE the user is staff (who
      don't log items) THE "+" button SHALL be omitted.
    - Alerts opens Notifications and shows the unread count as a badge.
    - Profile opens the user's profile.
    - The current tab SHALL be highlighted in the accent color; the others use
      the muted text color.
-   - On narrow screens the header's "+", bell, and avatar SHALL be hidden (the
-     bottom bar replaces them); the hamburger, brand, and search stay.
+   - On narrow screens the header's "+", Gallery, bell, and avatar SHALL be
+     hidden (the bottom bar replaces them); the brand and search stay.
    - The bar SHALL respect the device's bottom safe area, and page content SHALL
      not be hidden behind it.
    - Full-screen overlays (post detail, author profile) cover the bar.
@@ -579,12 +696,11 @@ automatically, so that I don't have to re-type the details.
 1. THE Log Found Item form SHALL provide a text area to paste a post caption and
    a "Fill from caption" action.
 2. WHEN the user pastes caption text and triggers "Fill from caption" THEN the
-   system SHALL structure the text into the form fields it can infer: title,
-   category (mapped to the app's existing category list), location found, and
-   description.
-2a. WHERE the caption does not specify when the item was found THE system SHALL
-   default the "When did you find it?" field to today (the current date/time),
-   leaving it editable so the user can correct it before submitting.
+   system SHALL structure the text into the form fields it can infer: the
+   caption (inferred title as its first line, followed by the description),
+   category (mapped to the app's existing category list), and location found.
+2a. ~~Default the "When did you find it?" field to now~~ — superseded: the Log
+   form has no time field; the time is recorded as the moment of posting.
 3. WHILE the caption is being processed THE system SHALL show a processing
    state and SHALL disable the action to prevent duplicate requests.
 4. WHEN structuring completes THEN the system SHALL populate the corresponding

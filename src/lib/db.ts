@@ -461,3 +461,31 @@ export function subscribeUpvotes(onChange: (rows: DbUpvote[]) => void): () => vo
     .subscribe();
   return () => { supabase!.removeChannel(channel); };
 }
+
+// ─── Profiles (name + Google photo, so others can see them) ───────────────────
+
+export interface DbProfile {
+  id: string;
+  name: string;
+  avatar_url?: string;
+}
+
+export async function upsertProfile(p: DbProfile): Promise<boolean> {
+  if (!isDbEnabled) return false;
+  const { error } = await supabase!.from("profiles").upsert({
+    id: p.id, name: p.name, avatar_url: p.avatar_url ?? null, updated_at: new Date().toISOString(),
+  });
+  if (error) { console.warn("upsertProfile failed:", error.message); return false; }
+  return true;
+}
+
+export async function listProfiles(): Promise<Record<string, DbProfile>> {
+  if (!isDbEnabled) return {};
+  const { data, error } = await supabase!.from("profiles").select("id, name, avatar_url");
+  if (error) { console.warn("listProfiles failed:", error.message); return {}; }
+  const map: Record<string, DbProfile> = {};
+  for (const r of data ?? []) {
+    map[String(r.id)] = { id: String(r.id), name: (r.name as string) ?? "", avatar_url: (r.avatar_url as string) ?? undefined };
+  }
+  return map;
+}

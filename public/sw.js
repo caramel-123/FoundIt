@@ -2,7 +2,7 @@
 // offline shell. It deliberately bypasses cross-origin requests (Supabase auth,
 // data, Realtime, Google OAuth, fonts) so it never interferes with live APIs.
 
-const CACHE = "foundit-v1";
+const CACHE = "foundit-v2"; // bump to drop every older cache on activate
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -39,6 +39,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   // Only handle same-origin requests. Never touch Supabase / Google / CDNs.
   if (url.origin !== self.location.origin) return;
+
+  // Never cache Vite dev-server modules; otherwise a worker left over from a
+  // production build on the same origin serves stale source during development.
+  if (/^\/(src|@vite|@id|@fs|@react-refresh|node_modules)\//.test(url.pathname) || url.pathname.startsWith("/@")) return;
 
   // Navigation requests: network-first so users get the latest app; fall back
   // to the cached shell when offline.

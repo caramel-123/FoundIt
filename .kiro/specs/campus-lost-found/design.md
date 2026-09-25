@@ -52,7 +52,7 @@ persisted here; it stays owned by `src/lib/auth.ts`.
 | Component | Responsibility |
 |---|---|
 | `App` | Owns all state (items, claims, notices, role, view, upvotes) and handlers; renders `Nav` + the active view; hosts the claim modal. |
-| `Nav` | Sticky Reddit-style header: hamburger button (far left) toggling a left sidebar drawer that holds the role-filtered nav destinations (highlighting the current one); brand; centered search field; right side a "+" create icon (opens Log Item) and the profile avatar (opens profile); offline banner. No chat/bell, no top nav row. Search state is lifted to `App` and passed in. |
+| `Nav` | Sticky header: brand (→ catalog); search; right side (wide screens) a "+" create icon, a Gallery grid icon, the notifications bell, and the profile avatar; offline banner. No hamburger/sidebar. Search state is lifted to `App` and passed in. |
 | `CatalogView` | Public catalog with search field + category filter; supports "Feed" (post list) and "Community" (photo-centric grid) view modes, and renders an empty state with filter clearing. |
 | `ItemCard` | Reddit-style post: avatar + poster name + relative time + status icon, title, description, location, action row (upvote/comment/repost/share) and bottom-right claim action. |
 | `PostDetail` | Full-screen post detail view hosting full post content, action row, inline `OwnershipActionSection` ("I found it" / "I lost it"), and recursive comment thread. |
@@ -63,7 +63,6 @@ persisted here; it stays owned by `src/lib/auth.ts`.
 | `ClaimModal` | Owner submits identifying details for a claim. |
 | `FinderForm` | "Log a Found/Lost Item": a **Found / Lost** mode toggle. Found mode creates a `pending_intake` item (photo, optional ownership challenge). Lost mode collects the same fields (title, category, location/time lost, description, optional staff note, optional photo) EXCEPT the ownership challenge, and creates a missing notice via `onPostNotice`; no drop-off/intake copy. |
 | `MissingNotices` | Passive missing-item bulletin with a post form. |
-| `OwnerClaimsView` | Owner's claims list and per-claim message thread. |
 | `StaffDashboard` | Pending-intake queue and claims-review queue with status controls and reply thread. |
 
 
@@ -247,12 +246,16 @@ visible item shows as a reposted card quoting the original.
 
 ### Visual/UX conventions (design system)
 
-- **Identity:** a single warm palette family (cream `#FBF9D1`, sand `#E6CFA9`,
-  terracotta `#C1856D`, rust `#9A3F3F`, ink `#2C1414`) exposed as CSS theme
-  tokens in `index.css`. One accent (rust); no competing accent colors.
-- **Typography:** display/UI font is **Outfit** (loaded via Google Fonts in
-  `index.css`) with a system-font fallback. Headings use SemiBold/Bold with
-  slightly negative letter-spacing and tight leading; body uses Regular/Medium.
+- **Identity:** a white page and surface background (`#FFFFFF`) with a warm
+  accent family (sand `#E6CFA9`, terracotta `#C1856D`, rust `#9A3F3F`, ink
+  `#2C1414`) exposed as CSS theme tokens in `index.css`. Text and icons on rust
+  fills are white. One accent (rust); no competing accent colors. The app's
+  home-screen icon keeps its original cream artwork.
+- **Typography:** all body and UI text uses the device's **system font**
+  (`-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+  sans-serif` — SF Pro on Apple devices, Segoe UI on Windows, Roboto on
+  Android), like Reddit; nothing is downloaded. The "Foundit" wordmark keeps
+  **Momo Trust Display**. Headings use tight leading.
   Numeric counts use `font-variant-numeric: tabular-nums` so they don't jitter.
 - **Surfaces:** cards use sand backgrounds with terracotta hairline borders and
   soft, warm-tinted shadows (not pure-black). Rounded corners vary by nesting
@@ -744,7 +747,44 @@ row per change with `auth.uid()` as the actor. Only staff may read it; nobody
 writes to it directly (the trigger function is `security definer`). No UI in
 this phase.
 
-### Post detail wiring (Requirements 5.19, 17.8)
+### Post detail wiring (Requirements 5.19, 5.19a, 17.8)
+
+`PostDetail` keeps `panel: "comments" | "action"` (replacing the old
+`showClaimForm` boolean), starting at `"action"` when `initialActionOpen`. The
+"N comments" label is a button that sets `"comments"`; the icon-only
+`IconDocument` button toggles between `"action"` and `"comments"`. The comment
+thread renders only in `"comments"`. In `"action"`, the panel is the inline
+form when the user can start a claim/report, otherwise `OwnershipActionSection`
+(status/review of an existing flow). `OwnershipActionSection` is no longer
+rendered above the row. Opening a notification that references a report sets
+`detailInitialAction` so the detail opens on the ownership panel.
+For a lost post, the `"action"` panel's form has a `builderOpen` flag: false
+shows the "Create verification form" button; true shows the builder
+(`reportQuestions` list rendered as text + pen + disabled preview inputs, a
+"+ Add question" link, the note, and Send/Cancel). Opening the builder seeds
+one sample question; "+ Add question" appends an empty question and puts it in
+edit mode (`editingQuestionId`), and committing it empty removes it. Cancel
+resets the questions and the note.
+The question list, pen edit-in-place, and "+ Add question" live in a shared
+`QuestionBuilder` component (props: `questions`, `onChange`). Edits update the
+parent's list on every keystroke; Escape (or saving empty) restores the
+previous text, or removes a just-added question. `PostDetail` (lost-post found
+report) and `FinderForm` (found-item ownership challenge) both render it inside
+the same white, sand-bordered card; parents send only non-empty prompts.
+
+On a found post's poster side, `OwnershipActionSection` shows the claims the
+same way (cards → one opened claim with `SubmittedAnswers` and Approve /
+Reject / Send to staff for `pending`), reusing `openReportId`. This replaces
+the Profile "Responses" button and the `ChallengeResponsesModal`,
+`LostResponsesModal`, and `LostFlowModal` pop-ups, which are removed.
+
+On the owner's side, `OwnershipActionSection`'s lost-post branch keeps
+`openReportId`: null renders the reports as rectangular cards (buttons);
+set renders that report's form (questions as text + answer inputs, or
+read-only `SubmittedAnswers` once answered) with a "← All forms" back link.
+`needsAction` (owner with an `awaiting_owner` report, or reporter whose report
+is `answered`) draws a dot on the icon and makes `"action"` the initial panel
+(Requirement 5.19b).
 
 `App` passes the upvote, repost, and share handlers into `PostDetail`. The
 detail's "I lost it" / "I found it" button opens the inline form (it no longer
@@ -766,6 +806,17 @@ are dropped. `FinderForm` shows its existing processing state while this runs
 and stores only the returned data URL. A decode failure shows "That file isn't
 an image we can read."
 
+### Profiles and profile photos (Requirement 5c.3a) — migration `0007_profiles.sql`
+
+`public.profiles (id text pk, name text, avatar_url text, updated_at)`. RLS:
+any signed-in user can read; a user can insert/update only their own row
+(`id = auth.uid()::text`). On sign-in `App` upserts the current user's name and
+Google `avatar_url` (`db.upsertProfile`) and loads all rows (`db.listProfiles`)
+into `profiles` state, provided through `ProfilesContext` (the current user is
+always included from the auth session, which also covers mock mode). `Avatar`
+reads the context and renders the photo (`<img>`, `object-cover`) when known,
+falling back to the initials disc if there is none or it fails to load.
+
 ### Public author profile (Requirement 5c)
 
 `App` holds `authorProfile: { id, name } | null` and provides it through
@@ -778,31 +829,79 @@ catalog). Opening an item from it opens `PostDetail` above it, and Back returns
 to the profile, so the user keeps their place. Opening your own avatar shows the
 same public view.
 
+### Post-style composer (Requirement 1.0a)
+
+`FinderForm` renders one form for both modes, laid out like `ItemCard`: header
+row (`Avatar` + name + "just now" + a Found/Lost tag button that flips `mode`),
+a `CaptionEditor` (one `caption` string rendered as two seamless borderless
+auto-growing textareas: a bold first line that refuses newlines — Enter moves
+focus to the body, pasted newlines split into it — and a normal-weight body
+where Backspace at position 0 merges back into the first line; placeholder
+"What did you find?" / "What did you lose?"), a category
+`<select>` styled as a chip, a 📍 location row as a borderless input (no time
+field; `time_found` is set to the posting time on submit), and a full-width photo area that becomes the image preview.
+Below the card: `CreateFormCard`/`QuestionBuilder` (Found only), the private
+note, and a full-width Post button. Found and Lost share one field state
+(`caption`, `category`, `location`, `time`, `note`); submit maps it to the
+found or lost item exactly as before. Needs the signed-in user, so `App`
+passes `user` to `FinderForm`.
+
+### Campus location suggestions (Requirement 1.1b)
+
+`src/lib/campusPlaces.ts` exports `CAMPUS_PLACES` (the 50 legend entries of the
+PUP vicinity map, in map order) and a pure `matchPlaces(query, limit)` filter
+(case-insensitive substring; names starting with the query rank first; empty
+query returns the list in map order). The composer's 📍 row is a
+`LocationCombobox`: a borderless input with a suggestion list below it
+(`role="listbox"`, `aria-activedescendant` for keyboard highlight). Free text
+is always kept.
+
+### Caption-only log form (Requirement 1.1a)
+
+`FinderForm` keeps a single `caption` string per mode instead of `title` and
+`description`. `splitCaption(text)` (in `src/lib/captionHeuristic.ts`) returns
+`{ title, description }`: the first non-empty line (trimmed) and the remaining
+lines joined and trimmed. `joinCaption(title, description)` builds the caption
+back from the caption-import result, dropping a leading copy of the title from
+the description so it isn't repeated. The `Item` shape and database are
+unchanged: posts still store `title` and `description`.
+
 ### Mobile bottom tab bar (Requirement 11a.9)
 
-`BottomNav` renders under `md` (768px) as a fixed bar at the bottom: cream
-background (`#FBF9D1`), a 1px terracotta top border, no blur, gradient, or glow.
-Five equal columns; the middle holds a 56px solid rust (`#9A3F3F`) circle with
-a cream "+" that sits about 18px above the bar, with a 4px cream ring so it
-reads as cut into the bar, and one soft rust-tinted shadow. Tabs are a 24px
-line icon (1.75 stroke, drawn to match the reference: Feed = mixed tile grid,
-Community = four equal tiles, Alerts = bell with ring marks, Profile = person
-in a circle) over an 11px medium label. Active tab: rust icon and label, Feed's
-tiles filled; inactive: `#6B3A3A`. Press feedback is a 0.96 scale on the "+"
+`BottomNav` renders under `md` (768px) as a fixed bar at the bottom: white
+background, a 1px sand top border, no blur, gradient, or glow.
+Five equal columns; the middle holds a flat 44px square button (8px corner
+radius) filled rust red (`#9A3F3F`) with a white "+", sitting inline in the
+bar (not raised, no ring, no shadow); it darkens slightly while on the Log
+form. Tabs are a 24px
+icon over an 11px medium label: Feed = house, Community = 3×3 tile grid,
+Alerts = bell, Profile = person in a circle. Active tab: rust icon and label,
+and the house, bell, and profile head fill in; inactive: `#6B3A3A`.
+
+### Icon style
+
+All UI icons are drawn in-house on a 24×24 grid in an Instagram-style
+line language: 2px stroke, round caps and joins, generous corner radii, simple
+geometric shapes (search = circle + handle, comment = round speech bubble with a
+tail at bottom-right, share = paper plane, repost = two looping arrows, upvote
+= rounded triangle, camera, two-people, sparkles for AI). Filled variants mark
+active states. They are original drawings in that style, not copies of a
+third-party icon kit's files. Press feedback is a 0.96 scale on the "+"
 (skipped under `prefers-reduced-motion`). The bar pads by
 `env(safe-area-inset-bottom)`, and `<main>` gets matching bottom padding on
 narrow screens.
 
-The catalog layout (`feed` / `community`) moves from `CatalogView` state up to
-`App` (still persisted as `foundit:v1:catalogMode`) so both the bottom bar and
-the in-page toggle drive it. The in-page toggle is `hidden md:flex`. In `Nav`,
+Community opens `view = "gallery"` (the same `GalleryView` the header's Gallery
+icon opens), so the photo grid never depends on screen width; `CatalogView` has
+no layout mode. Feed is active when `view === "catalog"`, Community when
+`view === "gallery"`. In `Nav`,
 the "+", bell, and avatar get `hidden md:inline-flex`. Staff (`canCreate`
 false) get a four-tab bar without the "+".
 
 ### Catalog Feed / Community toggle (Requirement 3.9)
 
-`CatalogView` has a two-option segmented control ("Feed" / "Community") above
-the list. Community renders the photo grid shared with `GalleryView` (extracted
+`CatalogView` takes the layout from `App` (no toggle of its own). Community
+renders the photo grid shared with `GalleryView` (extracted
 as `PhotoGrid`) over the same filtered items, so search and category still
 apply. The chosen mode is kept in `localStorage` (`foundit:v1:catalogMode`).
 

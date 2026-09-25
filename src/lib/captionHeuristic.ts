@@ -63,3 +63,19 @@ export function localParse(caption: string): ParsedCaption {
     description: text,
   };
 }
+
+/** Split a post caption: first non-empty line is the title, the rest is the description. */
+export function splitCaption(text: string): { title: string; description: string } {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const first = lines.findIndex(l => l.trim() !== "");
+  if (first === -1) return { title: "", description: "" };
+  return { title: lines[first].trim(), description: lines.slice(first + 1).join("\n").trim() };
+}
+
+/** Rebuild a caption from a title and description without repeating the title. */
+export function joinCaption(title: string, description: string): string {
+  const t = title.trim();
+  let d = description.trim();
+  if (t && d.startsWith(t)) d = d.slice(t.length).trim();
+  return [t, d].filter(Boolean).join("\n");
+}
