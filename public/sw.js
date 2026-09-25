@@ -2,8 +2,8 @@
 // offline shell. It deliberately bypasses cross-origin requests (Supabase auth,
 // data, Realtime, Google OAuth, fonts) so it never interferes with live APIs.
 
-const CACHE = "foundit-v2"; // bump to drop every older cache on activate
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest"];
+const CACHE = "foundit-v3"; // bump to drop every older cache on activate
+const APP_SHELL = ["/", "/index.html"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -39,6 +39,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   // Only handle same-origin requests. Never touch Supabase / Google / CDNs.
   if (url.origin !== self.location.origin) return;
+
+  // The manifest carries the theme color and icons; always fetch it fresh so
+  // changes reach installed apps instead of being served from a stale cache.
+  if (url.pathname === "/manifest.webmanifest") return;
 
   // Never cache Vite dev-server modules; otherwise a worker left over from a
   // production build on the same origin serves stale source during development.
