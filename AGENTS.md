@@ -8,6 +8,17 @@ Always update `.kiro/specs/campus-lost-found/` (`requirements.md`, `design.md`,
 `tasks.md`) **before** implementing any new or changed behavior. Do not write
 application code from chat alone. See `.kiro/steering/spec-driven-workflow.md`.
 
+## Read first
+
+1. `BUILD.md` for commands, env vars, migrations and file map.
+2. `.kiro/specs/campus-lost-found/` for requirements, design and tasks.
+3. `design/tokens.md` and `design/ux-rules.md` for the UI. Follow them for every UI change.
+
+Screenshots in `design/screens/` are captured by you, not the user. Follow
+`design/screens/README.md` after any visible UI change.
+
+Only change what the user points out. Do not commit unless asked.
+
 ## Development Server
 
 A Vite development server is **already running** on `$PORT` (default 8443). You don't need to start it manually.

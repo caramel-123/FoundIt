@@ -86,6 +86,7 @@ today; unchecked tasks are remaining work.
   - _Requirements: 10 (1, 2, 7)_
 
 - [x] 12c-1. Public landing page + signed-out routing (Requirement 10a)
+- [x] 12c-2. Restyle the landing page to the neutral design system (Requirement 10a.7)
   - Add `LandingPage` component: brand wordmark, tagline, "how it works"
     summary (log → verify → claim → release), and a "Get started" CTA.
   - Add signed-out `authView` state (`"landing" | "login"`) to `App`; default to
@@ -295,7 +296,7 @@ today; unchecked tasks are remaining work.
 - [x] 21a. Community photo-centric catalog view toggle (Feed / Community)
   - Layout toggle in CatalogView header; responsive image grid for photo posts
     with minimal overlay (title, Lost/Found tag, location); click opens PostDetail.
-  - _Requirements: 3.9_
+  - _Requirements: 3.9, 19_
 
 - [x] 21b. Public author profile (`PublicProfileView` + `OpenAuthorContext`)
   - Clicking any author avatar or name opens PublicProfileView with their avatar,

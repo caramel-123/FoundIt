@@ -660,6 +660,11 @@ sign in.
    or private data; only after successful sign-in SHALL the app views render.
 6. WHILE the user is signed in THE landing page SHALL NOT be shown; the app SHALL
    render the authenticated experience directly.
+7. THE landing page SHALL follow the app's neutral design system
+   (`design/tokens.md`, `design/ux-rules.md`): white page, soft-black text and flat
+   soft-black buttons, grey secondary text, filled surfaces with no outlines,
+   shadows or gradients, and full-bleed grey dividers between sections. The rust
+   and terracotta accent is limited to the wordmark.
 
 ### Requirement 11 — Role-based navigation (demo)
 

@@ -1,0 +1,169 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+@font-face{font-family:'Momo';src:url(https://cdn.jsdelivr.net/fontsource/fonts/momo-trust-display@5.3.0/latin-400-normal.woff2) format('woff2')}
+*{box-sizing:border-box;margin:0}
+html,body{width:960px;height:540px;overflow:hidden;background:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#3A3A3A}
+.abs{position:absolute}
+#bg{inset:0;background-image:radial-gradient(#E5E5E5 1.2px,transparent 1.3px);background-size:26px 26px}
+.wm{font-family:'Momo',sans-serif;font-weight:400}
+.ico{width:46px;height:46px;stroke:#9CA3AF;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.bub{background:#F2F2F2;border-radius:16px;padding:10px 16px;font-size:15px;color:#4B5563;white-space:nowrap}
+.bub.me{background:#3A3A3A;color:#fff}
+.chip{background:#fff;border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.10);display:flex;gap:8px;align-items:center;white-space:nowrap}
+.card{background:#fff;border-radius:14px;padding:16px 18px;box-shadow:0 18px 40px rgba(0,0,0,.12)}
+.kick{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#C1856D;font-weight:700}
+.big{font-size:56px;font-weight:800;letter-spacing:-.03em;line-height:1}
+.sub{font-size:19px;color:#6B7280;line-height:1.45;max-width:360px}
+.tag{font-size:11px;font-weight:800;letter-spacing:.08em;padding:3px 7px;border-radius:5px}
+svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+</style></head><body>
+<div id="bg" class="abs"></div>
+
+<!-- A: problem -->
+<div id="A" class="abs" style="inset:0">
+ <div id="icons"></div>
+ <div id="lost" class="abs" style="left:0;right:0;top:150px;text-align:center"></div>
+ <div id="lost2" class="abs" style="left:0;right:0;top:300px;text-align:center;font-size:30px;font-weight:700;letter-spacing:-.02em">on campus?</div>
+ <div id="bubs"></div>
+ <div id="buried" class="abs" style="left:0;right:0;top:238px;text-align:center"><span style="display:inline-block;background:#3A3A3A;color:#fff;font-size:30px;font-weight:800;letter-spacing:-.02em;padding:14px 26px;border-radius:14px">Posts get buried. Items stay lost.</span></div>
+</div>
+
+<!-- B: brand -->
+<div id="B" class="abs" style="inset:0;background:#3A3A3A;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+ <div id="wmB" class="wm" style="font-size:120px;color:#fff;display:flex"></div>
+ <div id="tagB" style="font-size:21px;color:#D1D5DB;height:28px"></div>
+</div>
+
+<!-- C: product -->
+<div id="C" class="abs" style="inset:0">
+ <div class="abs" style="left:80px;top:120px;width:400px">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px"><span id="cnt" class="kick" style="color:#3A3A3A">01 / 03</span>
+   <span style="width:120px;height:3px;background:#ECECEE;border-radius:2px;overflow:hidden"><span id="bar" style="display:block;height:100%;width:0;background:#C1856D"></span></span></div>
+  <div id="steps" style="position:relative;height:260px"></div>
+ </div>
+ <div id="phoneWrap" class="abs" style="left:640px;top:20px;perspective:1100px">
+  <div id="phone" style="width:240px;border-radius:34px;background:#1f1f1f;padding:9px;transform-style:preserve-3d;box-shadow:0 40px 80px rgba(0,0,0,.18)">
+   <div style="position:relative;width:222px;height:481px;overflow:hidden;border-radius:26px;background:#fff">
+    <img id="scr0" class="abs" src="01-feed.png" style="width:222px;left:0;top:0">
+    <img id="scr1" class="abs" src="03-composer.png" style="width:222px;left:0;top:0">
+    <img id="scr2" class="abs" src="05-i-found-it.png" style="width:222px;left:0;top:0">
+    <div id="rip" class="abs" style="width:40px;height:40px;border-radius:50%;border:2.5px solid #C1856D;margin:-20px 0 0 -20px"></div>
+   </div>
+  </div>
+ </div>
+ <div id="callouts"></div>
+</div>
+
+<!-- D: value -->
+<div id="D" class="abs" style="inset:0">
+ <div class="abs kick" id="dk" style="left:80px;top:70px">What Foundit gives campus</div>
+ <div id="vals"></div>
+</div>
+
+<!-- E: end -->
+<div id="E" class="abs" style="inset:0;background:#3A3A3A;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px">
+ <div id="wmE" class="wm" style="font-size:104px;color:#fff"><span>Found</span><span style="color:#C1856D">it</span></div>
+ <div id="lineE" style="height:2px;background:#C1856D;width:0"></div>
+ <div id="tagE" style="display:flex;gap:14px;font-size:24px;font-weight:700;color:#fff"></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const cl=x=>Math.max(0,Math.min(1,x));
+const eo=x=>{x=cl(x);return 1-Math.pow(1-x,3)};
+const eio=x=>{x=cl(x);return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2};
+const eb=x=>{x=cl(x);const c=1.9,d=x-1;return 1+(c+1)*d*d*d+c*d*d};
+let T=0;const P=(a,d)=>cl((T-a)/d);
+const vis=(el,a,b,fi=.35,fo=.35)=>{const v=Math.min(P(a,fi),cl((b-T)/fo));el.style.opacity=v;el.style.display=v<=0?'none':'';return v};
+const mk=(parent,html,style)=>{const d=document.createElement('div');d.className='abs';d.innerHTML=html;d.style.cssText+=style||'';$(parent).appendChild(d);return d};
+const I={
+ id:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2.2"/><path d="M14 10h4M14 14h4M6 16c.6-1.4 1.7-2 3-2s2.4.6 3 2"/>',
+ wallet:'<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V5"/><circle cx="16" cy="14" r="1.3"/>',
+ key:'<circle cx="7.5" cy="15.5" r="4.5"/><path d="m11 12 9-9M17 6l3 3M14 9l2 2"/>',
+ bottle:'<path d="M10 2h4M10 2v3l-2 3v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V8l-2-3V2M8 12h8"/>',
+ phone:'<rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/>',
+ bag:'<path d="M5 8h14l-1 13H6L5 8Z"/><path d="M9 8a3 3 0 0 1 6 0"/>',
+ pin:'<path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/>',
+ up:'<path d="M12 4 3 19h18L12 4Z"/>',
+ shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>',
+ lock:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+ bolt:'<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>',
+ check:'<path d="M5 12.5 10 17.5 19 7"/>'
+};
+const svg=(k,cls='i',st='')=>`<svg class="${cls}" viewBox="0 0 24 24" style="${st}">${I[k]}</svg>`;
+
+// A icons
+const icoPos=[['id',110,90],['wallet',820,110],['key',160,420],['bottle',800,400],['phone',60,260],['bag',880,260],['wallet',300,470],['key',640,60]];
+const icos=icoPos.map(([k,x,y],i)=>mk('icons',svg(k,'ico'),`left:${x}px;top:${y}px`));
+// A headline letters
+const L='Lost'.split('').map(c=>{const s=document.createElement('span');s.textContent=c;s.style.cssText='display:inline-block;font-size:150px;font-weight:900;letter-spacing:-.04em;line-height:1';$('lost').appendChild(s);return s});
+// bubbles
+const B=[["May nakakita ba ng ID ko?",70,70,3.5,0],["Lost wallet sa Oval",560,40,3.7,1],["Sino may-ari nito?",330,120,3.9,0],["Found keys sa Gym",640,170,4.05,1],["Pls share, ID ko po",90,200,4.2,0],["Nawala tumbler ko",520,300,4.35,0],["Nasa office daw?",150,330,4.5,1],["Up!!",760,250,4.6,0],["Any update po?",620,420,4.75,0],["May nag claim na?",220,440,4.9,1],["Pa-share po",420,480,5.0,0],["Which office?",40,470,5.1,1]];
+const bubs=B.map(([t,x,y,a,me])=>({el:mk('bubs',`<div class="bub ${me?'me':''}">${t}</div>`,`left:${x}px;top:${y}px`),x,y,a}));
+// brand letters
+const wmL=[...'Found'].map(c=>[c,'#fff']).concat([...'it'].map(c=>[c,'#C1856D'])).map(([c,col])=>{const s=document.createElement('span');s.textContent=c;s.style.cssText=`display:inline-block;color:${col}`;$('wmB').appendChild(s);return s});
+// steps text
+const ST=[["Post it","One campus feed for every lost and found item."],["Log it fast","One caption, a place, a photo. Done in seconds."],["Verify it","Only the real owner can answer the finder's questions."]];
+const steps=ST.map(([h,s],i)=>mk('steps',`<div class="big">${h}</div><div class="sub" style="margin-top:18px">${s}</div>`,'left:0;top:0;width:400px'));
+// callouts
+const C1=mk('callouts',`<div class="card" style="width:230px"><div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span class="tag" style="background:#E6CFA9;color:#5C2020">FOUND</span><span style="font-size:12px;color:#9CA3AF">3h ago</span></div><div style="font-weight:700;font-size:17px">Black wallet near the Oval</div></div>`,'left:420px;top:90px');
+const C2=mk('callouts',`<div class="chip">${svg('pin','i','color:#C1856D')}Oval, PUP Main</div>`,'left:470px;top:215px');
+const C3=mk('callouts',`<div class="chip">${svg('up','i')}<span id="upN">0</span> upvotes</div>`,'left:500px;top:285px');
+const C4=mk('callouts',`<div class="card" style="width:260px"><div style="font-size:12px;color:#9CA3AF;margin-bottom:6px">Caption</div><div style="font-weight:700;font-size:17px;min-height:24px"><span id="typ"></span><span id="car" style="border-left:2px solid #3A3A3A;margin-left:1px"></span></div></div>`,'left:400px;top:100px');
+const C5=mk('callouts',`<div class="chip">${svg('pin','i','color:#C1856D')}Oval</div>`,'left:470px;top:215px');
+const C6=mk('callouts',`<div class="chip" style="background:#3A3A3A;color:#fff">${svg('check','i')}Photo GPS removed</div>`,'left:430px;top:280px');
+const C7=mk('callouts',`<div class="card" style="width:280px"><div style="font-size:12px;color:#9CA3AF;margin-bottom:8px">Verification form</div><div style="font-weight:700;font-size:15px">What is inside the wallet?</div><div style="margin-top:10px;background:#F7F7F8;border-radius:8px;padding:9px 11px;font-size:14px;min-height:36px"><span id="ans"></span><span id="car2" style="border-left:2px solid #3A3A3A;margin-left:1px"></span></div></div>`,'left:380px;top:90px');
+const C8=mk('callouts',`<div style="display:flex;align-items:center;gap:10px;background:#9A3F3F;color:#fff;padding:12px 20px;border-radius:12px;font-size:20px;font-weight:800;box-shadow:0 18px 40px rgba(154,63,63,.3)"><svg viewBox="0 0 24 24" style="width:26px;height:26px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round"><path id="ck" d="M5 12.5 10 17.5 19 7" stroke-dasharray="22" stroke-dashoffset="22"/></svg>Owner verified</div>`,'left:420px;top:300px');
+// values
+const VV=[["Trusted","shield","Owners prove it before pickup."],["Private","lock","No stranger DMs. No GPS in photos."],["Fast","bolt","One searchable feed, not scattered chats."]];
+const vals=VV.map(([h,k,s],i)=>mk('vals',`<div style="display:flex;align-items:center;gap:22px"><svg viewBox="0 0 24 24" style="width:54px;height:54px;fill:none;stroke:#C1856D;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><g id="vi${i}" stroke-dasharray="70" stroke-dashoffset="70">${I[k]}</g></svg><div><div style="font-size:64px;font-weight:900;letter-spacing:-.04em;line-height:1">${h}.</div><div style="font-size:17px;color:#6B7280;margin-top:6px">${s}</div></div></div>`,`left:80px;top:${120+i*120}px`));
+const tagE=["Post it.","Verify it.","Return it."].map(w=>{const s=document.createElement('span');s.textContent=w;s.style.display='inline-block';$('tagE').appendChild(s);return s});
+
+const pop=(el,a,b,dx=0,dy=16)=>{const v=vis(el,a,b,.25,.3);const k=eb(P(a,.5));el.style.transform=`translate(${(1-k)*dx}px,${(1-k)*dy}px) scale(${.7+.3*k})`;return v};
+
+window.render=function(t){T=t;
+ $('bg').style.backgroundPosition=`${-t*14}px ${-t*9}px`;
+ // ---------- A 0-7
+ vis($('A'),-1,7.05,.01,.2);
+ icos.forEach((el,i)=>{const a=.1+i*.08;const k=eb(P(a,.6));const v=Math.min(k, cl((3.4-t)/.4));el.style.opacity=v;el.style.transform=`translateY(${Math.sin(t*1.6+i)*9}px) rotate(${Math.sin(t*.9+i*2)*14}deg) scale(${k})`});
+ L.forEach((s,i)=>{const k=eb(P(.2+i*.09,.55));s.style.transform=`translateY(${(1-k)*90}px) scale(${.4+.6*k}) rotate(${(1-k)*(i%2?12:-12)}deg)`;s.style.opacity=cl(P(.2+i*.09,.2))});
+ const lx=eio(P(3.0,.5));$('lost').style.transform=`translateY(${-lx*60}px) scale(${1-lx*.3})`;$('lost').style.opacity=1-lx;
+ const l2=eo(P(1.05,.5));$('lost2').style.opacity=Math.min(l2,1-lx);$('lost2').style.transform=`translateY(${(1-l2)*24-lx*60}px)`;
+ const drift=eio(P(3.4,3))*-40,sc=eio(P(6.3,.7));
+ bubs.forEach((b,i)=>{const k=eb(P(b.a,.45));const dx=(b.x+80-480),dy=(b.y+18-270);b.el.style.opacity=cl(P(b.a,.15))*(1-sc)*(t<5.5?1:1-.55*eo(P(5.5,.4)));
+  b.el.style.transform=`translate(${dx*sc*1.6}px,${drift+dy*sc*1.6}px) scale(${.5+.5*k}) rotate(${sc*(i%2?40:-40)}deg)`;b.el.style.filter=t>5.5&&sc<1?`blur(${1.5*eo(P(5.5,.4))}px)`:''});
+ const bu=eb(P(5.55,.5));$('buried').style.opacity=cl(P(5.55,.15))*(1-eo(P(6.6,.35)));$('buried').style.transform=`scale(${.6+.4*bu})`;
+ // ---------- B 6.8-9.8
+ const r=eio(P(6.8,.7))*1150;const bv=t>=6.8&&t<9.9;$('B').style.display=bv?'flex':'none';
+ $('B').style.clipPath=`circle(${r}px at 50% 55%)`;$('B').style.transform=`translateX(${-eio(P(9.3,.55))*960}px)`;
+ wmL.forEach((s,i)=>{const k=eb(P(7.3+i*.07,.55));s.style.transform=`translateY(${(1-k)*70}px)`;s.style.opacity=cl(P(7.3+i*.07,.2))});
+ const tg='A trusted lost-and-found for PUP';$('tagB').textContent=tg.slice(0,Math.floor(cl((t-8.1)/.9)*tg.length));
+ // ---------- C 9.3-24.2
+ const cv=vis($('C'),9.35,24.0,.05,.3);
+ const pe=eo(P(9.4,.9));const px=(1-pe)*420+eio(P(23.6,.6))*520;
+ $('phone').style.transform=`translateX(${px}px) rotateY(${-10+(1-pe)*40+Math.sin(t*.8)*4}deg) rotateX(${Math.sin(t*.6)*3}deg) rotateZ(${eio(P(23.6,.6))*18}deg)`;
+ const sw=[15,19.5];[0,1,2].forEach(i=>{const inK=i==0?1:eio(P(sw[i-1],.55));const outK=i==2?0:eio(P(sw[i],.55));const el=$('scr'+i);el.style.transform=`translateX(${(1-inK)*222-outK*80}px)`;el.style.opacity=i==0?1-outK*.0:1;el.style.zIndex=i});
+ // ripple taps
+ const tap=(a,x,y)=>{const k=P(a,.5);return k>0&&k<1?{k,x,y}:null};const tp=tap(14.4,111,464)||tap(18.9,111,414)||tap(10.8,190,72);
+ if(tp){$('rip').style.display='';$('rip').style.left=tp.x+'px';$('rip').style.top=tp.y+'px';$('rip').style.transform=`scale(${.3+tp.k*1.4})`;$('rip').style.opacity=1-tp.k}else $('rip').style.display='none';
+ // step texts
+ const si=t<15?0:t<19.5?1:2;$('cnt').textContent=`0${si+1} / 03`;$('bar').style.width=(cl((t-9.8)/14.2)*100)+'%';
+ const bnd=[[9.8,15],[15,19.5],[19.5,23.8]];
+ steps.forEach((el,i)=>{const[a,b]=bnd[i];const ki=eo(P(a,.55)),ko=eio(P(b-.3,.4));el.style.opacity=ki*(1-ko);el.style.transform=`translateY(${(1-ki)*40-ko*40}px)`;el.style.clipPath=`inset(0 0 ${(1-ki)*30}% 0)`});
+ // callouts
+ pop(C1,11.0,14.8,40);pop(C2,11.7,14.8,40);pop(C3,12.3,14.8,40);$('upN').textContent=Math.round(eo(P(12.5,1.2))*128);
+ pop(C4,15.6,19.3,40);const cap='Black wallet near the Oval';$('typ').textContent=cap.slice(0,Math.floor(cl((t-15.9)/1.3)*cap.length));$('car').style.opacity=(Math.floor(t*3)%2)?1:0;
+ pop(C5,17.3,19.3,40);pop(C6,17.9,19.3,40);
+ pop(C7,20.0,23.7,40);const an='PUP ID and a jeepney card';$('ans').textContent=an.slice(0,Math.floor(cl((t-20.6)/1.2)*an.length));$('car2').style.opacity=(Math.floor(t*3)%2)?1:0;
+ const s8=vis(C8,22.0,23.7,.1,.3);const k8=eb(P(22.0,.45));C8.style.transform=`scale(${1.9-.9*k8}) rotate(${(1-k8)*-8}deg)`;$('ck').style.strokeDashoffset=22*(1-eo(P(22.3,.4)));
+ // ---------- D 24-27.6
+ vis($('D'),23.75,27.6,.2,.3);const dk=eo(P(23.8,.4));$('dk').style.transform=`translateX(${(1-dk)*-30}px)`;
+ vals.forEach((el,i)=>{const a=23.95+i*.7;const k=eb(P(a,.5));el.style.opacity=cl(P(a,.15));el.style.transform=`translateX(${(1-k)*-120}px) scale(${1.25-.25*k})`;el.style.filter=`blur(${(1-cl(P(a,.3)))*6}px)`;$('vi'+i).style.strokeDashoffset=70*(1-eo(P(a+.2,.8)))});
+ // ---------- E 27.3-30
+ const er=eio(P(27.3,.7))*1200;$('E').style.display=t>=27.3?'flex':'none';$('E').style.clipPath=`circle(${er}px at 100% 100%)`;
+ const wk=eb(P(27.7,.6));$('wmE').style.transform=`scale(${.6+.4*wk})`;$('wmE').style.opacity=cl(P(27.7,.2));
+ $('lineE').style.width=eo(P(28.2,.5))*80+'px';
+ tagE.forEach((s,i)=>{const k=eb(P(28.4+i*.25,.45));s.style.opacity=cl(P(28.4+i*.25,.15));s.style.transform=`translateY(${(1-k)*22}px)`;s.style.color=i==2?'#C1856D':'#fff'});
+};
+render(0);
+</script></body></html>

@@ -1,0 +1,80 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+@font-face{font-family:'Momo';src:url(https://cdn.jsdelivr.net/fontsource/fonts/momo-trust-display@5.3.0/latin-400-normal.woff2) format('woff2')}
+*{box-sizing:border-box;margin:0}
+html,body{width:960px;height:540px;overflow:hidden;background:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#3A3A3A}
+.scene{position:absolute;inset:0;opacity:0}
+.wm{font-family:'Momo',sans-serif}.wm .a{color:#9A3F3F}.wm .b{color:#C1856D}
+.kicker{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:#C1856D;font-weight:600}
+h1{font-size:52px;line-height:1.05;letter-spacing:-.02em;font-weight:700}
+h2{font-size:38px;line-height:1.1;letter-spacing:-.02em;font-weight:700}
+p{font-size:19px;line-height:1.5;color:#6B7280}
+.center{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:18px;height:100%;padding:0 80px}
+.split{display:grid;grid-template-columns:1fr 300px;gap:60px;align-items:center;height:100%;padding:0 90px}
+.phone{width:240px;border-radius:34px;background:#1f1f1f;padding:9px}
+.phone img{width:100%;height:auto;border-radius:28px;display:block}
+.phone .clip{overflow:hidden;border-radius:26px;background:#fff}
+.bubbles{display:flex;flex-direction:column;gap:10px;align-items:center}
+.bub{background:#F7F7F8;border-radius:12px;padding:12px 18px;font-size:16px;color:#4B5563}
+.vals{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;width:100%;margin-top:14px}
+.val{background:#F7F7F8;border-radius:12px;padding:22px;text-align:left}
+.val b{display:block;font-size:20px;margin-bottom:6px;color:#3A3A3A}
+.val span{font-size:15px;color:#6B7280;line-height:1.45}
+.line{width:48px;height:2px;background:#C1856D}
+.dark{background:#3A3A3A;color:#fff}.dark p{color:#D1D5DB}
+</style></head><body>
+<!-- 0-6 problem -->
+<section class="scene" id="s0"><div class="center">
+ <div class="kicker">The problem</div>
+ <h1>Lost something on campus?</h1>
+ <div class="bubbles">
+  <div class="bub" id="b1">"May nakakita ba ng ID ko?" lost in a group chat</div>
+  <div class="bub" id="b2">Found items sit in an office box nobody sees</div>
+  <div class="bub" id="b3">And anyone can claim to be the owner</div>
+ </div></div></section>
+<!-- 6-9 intro -->
+<section class="scene dark" id="s1"><div class="center">
+ <h1 class="wm" style="font-size:96px;font-weight:400"><span class="a" style="color:#fff">Found</span><span class="b">it</span></h1>
+ <p>A trusted lost-and-found for PUP</p></div></section>
+<!-- 9-14 post -->
+<section class="scene" id="s2"><div class="split">
+ <div><div class="kicker">01 Post it</div><h2 style="margin-top:12px">One campus feed for every lost and found item</h2>
+ <p style="margin-top:16px">Found or lost, with a photo and a real place from the PUP campus map.</p></div>
+ <div class="phone"><div class="clip"><img id="i2" src="01-feed.png"></div></div></div></section>
+<!-- 14-18 composer -->
+<section class="scene" id="s3"><div class="split">
+ <div><div class="kicker">02 Log it fast</div><h2 style="margin-top:12px">Log an item in seconds</h2>
+ <p style="margin-top:16px">One caption, a place, a photo. Photo location data is stripped for privacy.</p></div>
+ <div class="phone"><div class="clip"><img id="i3" src="03-composer.png"></div></div></div></section>
+<!-- 18-23 verify -->
+<section class="scene" id="s4"><div class="split">
+ <div><div class="kicker">03 Verify it</div><h2 style="margin-top:12px">Only the real owner can answer</h2>
+ <p style="margin-top:16px">The finder sends a verification form. The owner proves it is theirs before anything is handed over.</p></div>
+ <div class="phone"><div class="clip"><img id="i4" src="05-i-found-it.png"></div></div></div></section>
+<!-- 23-27.5 value -->
+<section class="scene" id="s5"><div class="center" style="padding:0 90px">
+ <div class="kicker">The value</div><h2>Items go back to the right people</h2>
+ <div class="vals">
+  <div class="val" id="v1"><b>Trusted</b><span>Owners prove it before pickup at the admin office</span></div>
+  <div class="val" id="v2"><b>Private</b><span>No stranger DMs, no location data in photos</span></div>
+  <div class="val" id="v3"><b>Fast</b><span>One searchable feed instead of scattered chats</span></div>
+ </div></div></section>
+<!-- 27.5-30 end -->
+<section class="scene dark" id="s6"><div class="center">
+ <h1 class="wm" style="font-size:80px;font-weight:400"><span style="color:#fff">Found</span><span class="b">it</span></h1>
+ <div class="line"></div>
+ <p style="font-size:22px;color:#fff">Post it. Verify it. Return it.</p></div></section>
+<script>
+const S=[[0,6],[6,9],[9,14],[14,18],[18,23],[23,27.5],[27.5,30]];
+const cl=(x)=>Math.max(0,Math.min(1,x));const ease=x=>1-Math.pow(1-cl(x),3);
+function up(el,t,start,d=0.5){if(!el)return;const k=ease((t-start)/d);el.style.opacity=k;el.style.transform=`translateY(${(1-k)*18}px)`}
+window.render=function(t){
+ S.forEach(([a,b],i)=>{const el=document.getElementById('s'+i);const fi=i==0?1:cl((t-a)/0.4),fo=i==S.length-1?1:cl((b-t)/0.4);
+  el.style.opacity=(t>=a-0.001&&t<b+0.4)?Math.min(fi,fo):0;});
+ up(b1,t,1.4);up(b2,t,2.6);up(b3,t,3.8);
+ // phone scroll pans
+ [['i2',9,14,300],['i3',14,18,120],['i4',18,23,220]].forEach(([id,a,b,px])=>{const k=cl((t-a-0.8)/(b-a-1.2));const ph=document.getElementById(id).closest('.phone');const e=ease((t-a)/0.8);ph.style.transform=`translateY(${(1-e)*30}px) scale(${0.97+0.03*e})`});
+ up(v1,t,24);up(v2,t,24.4);up(v3,t,24.8);
+};
+render(0);
+</script></body></html>

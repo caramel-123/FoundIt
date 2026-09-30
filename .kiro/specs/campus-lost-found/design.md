@@ -246,33 +246,29 @@ visible item shows as a reposted card quoting the original.
 
 ### Visual/UX conventions (design system)
 
-- **Identity:** a white page and surface background (`#FFFFFF`) with a warm
-  accent family (sand `#E6CFA9`, terracotta `#C1856D`, rust `#9A3F3F`, ink
-  `#2C1414`) exposed as CSS theme tokens in `index.css`. Text and icons on rust
-  fills are white. One accent (rust); no competing accent colors. The app's
-  home-screen icon keeps its original cream artwork.
-- **Black:** every "black" (text, primary buttons, tags, dots) is one soft
-  black, `#3A3A3A`, not pure or near-pure black; secondary text is grey
-  (`#6B7280`).
-- **Typography:** all body and UI text uses the device's **system font**
-  (`-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-  sans-serif` — SF Pro on Apple devices, Segoe UI on Windows, Roboto on
-  Android), like Reddit; nothing is downloaded. The "Foundit" wordmark keeps
-  **Momo Trust Display**. Headings use tight leading.
-  Numeric counts use `font-variant-numeric: tabular-nums` so they don't jitter.
-- **Surfaces:** cards use sand backgrounds with terracotta hairline borders and
-  soft, warm-tinted shadows (not pure-black). Rounded corners vary by nesting
-  (softer on containers, tighter on inner controls).
-- **Interaction states:** all interactive elements have hover (subtle background
-  shift), active/pressed (`translateY(1px)` / slight scale), and a visible
-  `:focus-visible` ring in rust for keyboard users. Transitions are 150–200ms on
-  color/transform/opacity only (GPU-friendly).
+Exact values live in `design/tokens.md` and the behavior rules in
+`design/ux-rules.md`; this section is the summary.
+
+- **Identity:** neutral first. White page (`#FFFFFF`), soft black `#3A3A3A` for
+  every "black" (text, primary buttons, tags), grey `#6B7280` for secondary text
+  and icons, and one warm accent family (rust `#9A3F3F`, terracotta `#C1856D`,
+  sand `#E6CFA9`) used sparingly. Text on rust fills is white.
+- **Typography:** the device system font for all UI text; only the "Foundit"
+  wordmark uses Momo Trust Display. Tight heading leading; `tabular-nums` on counts.
+- **Surfaces:** cards are filled (`#F7F7F8`) with no outline and no shadow.
+  Sections are separated by full-bleed 1px `#E5E5E5` dividers. Radii 8 (controls),
+  12 (cards), full (avatars).
+- **Controls:** action rows, navigation and one-off tools are icon-only (grey,
+  rounded 2px line icons) with no border, outline, fill or circle; counts sit beside
+  the icon. Primary buttons are flat soft black with white text.
+- **Interaction states:** subtle hover fill, 1px pressed state, visible
+  `:focus-visible` ring; 150-200ms transitions on color/transform/opacity only.
 - **Item cards** mimic a social post layout, but there is intentionally no way to
-  contact a finder directly.
-- **Status** is communicated with an icon (with tooltip), not a text label, on
-  cards.
-- Accessibility: focus rings are never removed without a visible replacement;
-  icon-only controls carry `aria-label`/`title`.
+  contact a finder directly. Status is shown with an icon and tooltip, not a label.
+- **Mobile shell:** white status bar and theme color in `index.html` and the
+  manifest; the service worker does not cache the manifest.
+- Accessibility: focus rings are never removed without a replacement; icon-only
+  controls carry `aria-label`/`title`.
 
 ## Authentication design — Google sign-in (Requirement 10)
 
@@ -349,7 +345,7 @@ type AuthState =
 | Component | Change |
 |---|---|
 | `App` | Add auth state and a signed-out `authView` (`"landing" \| "login"`); render `<LandingPage/>` or `<SignIn/>` when signed out, a loader while loading, and the current app only when signed in. Pass `AuthUser` down. |
-| `LandingPage` (new) | Public marketing/intro screen: brand wordmark, tagline, "how it works" summary, and a "Get started" CTA that opens the sign-in screen. |
+| `LandingPage` (new) | Public marketing/intro screen: brand wordmark, tagline, "how it works" summary, and a "Get started" CTA that opens the sign-in screen. Styled with the neutral tokens (no outlines, shadows or gradients; accent only on the wordmark), per Requirement 10a.7. |
 | `SignIn` (new) | Branded sign-in screen with the "Continue with Google" button, error display, and a back control to the landing page. |
 | `Nav` | Replace the demo role selector with the signed-in user's avatar/name and a "Sign out" action. |
 | `ClaimModal` / claim handlers | Use `AuthUser.id` and `AuthUser.name` instead of hardcoded owner values. |

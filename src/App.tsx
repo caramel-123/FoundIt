@@ -3372,138 +3372,116 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
     { n: "3", title: "Claim it privately", body: "Owners prove ownership in a private thread with staff. No stranger messages." },
     { n: "4", title: "Pick it up", body: "Once verified, staff approve release and you collect your item at the office." },
   ];
+  const wordmark = (
+    <span style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
+      <span style={{ color: "#9A3F3F" }}>Found</span>
+      <span style={{ color: "#C1856D" }}>it</span>
+    </span>
+  );
   return (
     <div className="min-h-[100dvh]" style={{ background: "#FFFFFF", color: "#3A3A3A" }}>
-      {/* Nav — single line, slim */}
-      <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(251,249,209,0.85)", borderBottom: "1px solid #E6CFA9" }}>
-        <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
-          <span className="font-semibold text-2xl" style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
-            <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
-          </span>
+      <header className="sticky top-0 z-40" style={{ background: "#FFFFFF", borderBottom: "1px solid #E5E5E5" }}>
+        <div className="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
+          <span className="font-semibold text-2xl">{wordmark}</span>
           <button
             onClick={onGetStarted}
-            className="px-4 py-2 text-sm font-semibold rounded-lg transition-all active:scale-[0.98]"
-            style={{ background: "#9A3F3F", color: "#FFFFFF", boxShadow: "0 1px 2px rgba(154,63,63,0.2)" }}
+            className="px-4 py-2 text-sm font-semibold rounded-lg transition-all active:translate-y-px"
+            style={{ background: "#3A3A3A", color: "#FFFFFF" }}
           >
             Sign in
           </button>
         </div>
       </header>
 
-      {/* Hero — asymmetric split */}
-      <section className="max-w-6xl mx-auto px-5 pt-16 pb-20 grid lg:grid-cols-12 gap-12 items-center">
+      <section className="max-w-6xl mx-auto px-5 pt-14 pb-16 grid lg:grid-cols-12 gap-12 items-center">
         <div className="lg:col-span-7">
-          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-6"
-            style={{ background: "#F5ECEC", color: "#9A3F3F", border: "1px solid #E8C4AD" }}>
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#9A3F3F" }} />
+          <span className="inline-block px-3 py-1 rounded-full text-xs font-medium mb-6" style={{ background: "#ECECEE", color: "#6B7280" }}>
             Campus admin office · verified
           </span>
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] tracking-tight">
-            Lost it on campus?{" "}
-            <span style={{ fontFamily: "'Momo Trust Display', sans-serif" }}>
-              <span style={{ color: "#9A3F3F" }}>Found</span><span style={{ color: "#C1856D" }}>it</span>
-            </span>{" "}
-            probably has it.
+            Lost it on campus? {wordmark} probably has it.
           </h1>
-          <p className="mt-5 text-lg leading-relaxed max-w-[52ch]" style={{ color: "#6B3A3A" }}>
+          <p className="mt-5 text-lg leading-relaxed max-w-[52ch]" style={{ color: "#4B5563" }}>
             The office's real lost-and-found, online. Finders log items, staff verify custody, and you claim what's yours — privately.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <button
               onClick={onGetStarted}
-              className="inline-flex items-center gap-2 px-6 py-3 text-base font-semibold rounded-xl transition-all active:scale-[0.98]"
-              style={{ background: "#9A3F3F", color: "#FFFFFF", boxShadow: "0 4px 14px rgba(154,63,63,0.25)" }}
+              className="inline-flex items-center gap-2 px-6 py-3 text-base font-semibold rounded-lg transition-all active:translate-y-px"
+              style={{ background: "#3A3A3A", color: "#FFFFFF" }}
             >
               Get started
               <IconArrowRight />
             </button>
-            <span className="text-sm" style={{ color: "#9A7070" }}>Free · sign in with Google</span>
+            <span className="text-sm" style={{ color: "#9CA3AF" }}>Free · sign in with Google</span>
           </div>
         </div>
 
-        {/* Hero visual — a branded "found item" ticket, not a fake screenshot */}
         <div className="lg:col-span-5">
-          <div className="relative">
-            <div className="absolute -inset-4 rounded-3xl opacity-60" aria-hidden="true"
-              style={{ background: "radial-gradient(300px circle at 70% 20%, rgba(193,133,109,0.35), transparent 60%)" }} />
-            <div className="relative rounded-2xl p-5 rotate-1 hover:rotate-0 transition-transform duration-300"
-              style={{ background: "#FFFFFF", border: "1px solid #C1856D", boxShadow: "0 10px 30px rgba(154,63,63,0.15)" }}>
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: "#F2EBE5", color: "#5C2020", border: "1px solid #D4A896" }}>In office</span>
-                <span className="text-xs" style={{ color: "#9A7070" }}>#FND-2043</span>
-              </div>
-              <div className="w-full h-28 rounded-xl mb-4 flex items-center justify-center" style={{ background: "#E6CFA9" }}>
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9A3F3F" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                </svg>
-              </div>
-              <h3 className="font-semibold" style={{ color: "#3A3A3A" }}>Black wireless earbuds</h3>
-              <p className="text-sm mt-1" style={{ color: "#6B3A3A" }}>Found near the Library entrance</p>
-              <div className="mt-4 pt-4 flex items-center justify-between" style={{ borderTop: "1px solid #E6CFA9" }}>
-                <span className="text-xs" style={{ color: "#9A7070" }}>Verified by staff</span>
-                <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: "#9A3F3F" }}>
-                  Claim
-                  <IconArrowRight />
-                </span>
-              </div>
+          <div className="rounded-xl p-5" style={{ background: "#F7F7F8" }}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-semibold px-2 py-1 rounded-full" style={{ background: "#ECECEE", color: "#3A3A3A" }}>In office</span>
+              <span className="text-xs" style={{ color: "#9CA3AF" }}>#FND-2043</span>
             </div>
+            <div className="w-full h-28 rounded-lg mb-4 flex items-center justify-center" style={{ background: "#ECECEE" }}>
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+            </div>
+            <h3 className="font-semibold">Black wireless earbuds</h3>
+            <p className="text-sm mt-1" style={{ color: "#6B7280" }}>Found near the Library entrance</p>
+            <p className="mt-4 text-xs" style={{ color: "#9CA3AF" }}>Verified by staff</p>
           </div>
         </div>
       </section>
 
-      {/* Trust strip — divided, not cards */}
-      <section style={{ background: "#9A3F3F", color: "#FFFFFF" }}>
-        <div className="max-w-6xl mx-auto px-5 py-10 grid grid-cols-1 sm:grid-cols-3 sm:divide-x" style={{ borderColor: "rgba(255,255,255,0.15)" }}>
+      <section style={{ background: "#F7F7F8" }}>
+        <div className="max-w-6xl mx-auto px-5 py-10 grid grid-cols-1 sm:grid-cols-3 gap-6">
           {[
             { k: "Verified", v: "Every item confirmed in-office before it's public" },
             { k: "Private", v: "Claims happen in a staff-reviewed thread only" },
             { k: "Minimal", v: "We use just your name and email — nothing more" },
-          ].map((s, i) => (
-            <div key={s.k} className={i === 0 ? "sm:pr-8" : "sm:px-8 pt-6 sm:pt-0"}>
+          ].map((s) => (
+            <div key={s.k}>
               <p className="text-lg font-semibold">{s.k}</p>
-              <p className="mt-1 text-sm leading-relaxed" style={{ color: "#F5ECEC" }}>{s.v}</p>
+              <p className="mt-1 text-sm leading-relaxed" style={{ color: "#6B7280" }}>{s.v}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* How it works — stepped rail, distinct layout family */}
-      <section className="max-w-4xl mx-auto px-5 py-20">
+      <section className="max-w-4xl mx-auto px-5 py-16">
         <h2 className="text-3xl md:text-4xl font-bold tracking-tight">How it works</h2>
-        <p className="mt-3 text-base max-w-[55ch]" style={{ color: "#6B3A3A" }}>
+        <p className="mt-3 text-base max-w-[55ch]" style={{ color: "#6B7280" }}>
           A strict, auditable flow — not a social feed. Four steps from found to reunited.
         </p>
         <ol className="mt-10 flex flex-col gap-6">
           {steps.map((s, i) => (
             <li key={s.n} className="flex gap-5">
               <div className="flex flex-col items-center">
-                <span className="inline-flex items-center justify-center w-10 h-10 rounded-full text-base font-bold shrink-0"
-                  style={{ background: "#9A3F3F", color: "#FFFFFF" }}>{s.n}</span>
-                {i < steps.length - 1 && <span className="w-px flex-1 mt-2" style={{ background: "#E6CFA9" }} />}
+                <span className="inline-flex items-center justify-center w-9 h-9 rounded-full text-sm font-semibold shrink-0"
+                  style={{ background: "#3A3A3A", color: "#FFFFFF" }}>{s.n}</span>
+                {i < steps.length - 1 && <span className="w-px flex-1 mt-2" style={{ background: "#E5E5E5" }} />}
               </div>
               <div className="pb-2">
-                <h3 className="text-lg font-semibold" style={{ color: "#3A3A3A" }}>{s.title}</h3>
-                <p className="mt-1 text-sm leading-relaxed max-w-[50ch]" style={{ color: "#6B3A3A" }}>{s.body}</p>
+                <h3 className="text-lg font-semibold">{s.title}</h3>
+                <p className="mt-1 text-sm leading-relaxed max-w-[50ch]" style={{ color: "#6B7280" }}>{s.body}</p>
               </div>
             </li>
           ))}
         </ol>
       </section>
 
-      {/* Closing CTA band */}
-      <section className="px-5 pb-20">
-        <div className="max-w-6xl mx-auto rounded-3xl px-8 py-14 text-center relative overflow-hidden"
-          style={{ background: "#E6CFA9", border: "1px solid #C1856D" }}>
-          <div className="pointer-events-none absolute inset-0" aria-hidden="true"
-            style={{ background: "radial-gradient(500px circle at 50% 0%, rgba(154,63,63,0.12), transparent 60%)" }} />
-          <h2 className="relative text-3xl md:text-4xl font-bold tracking-tight">Lost something? Let's find it.</h2>
-          <p className="relative mt-3 text-base max-w-[46ch] mx-auto" style={{ color: "#6B3A3A" }}>
+      <section style={{ background: "#F7F7F8" }}>
+        <div className="max-w-6xl mx-auto px-5 py-14 text-center">
+          <h2 className="text-3xl md:text-4xl font-bold tracking-tight">Lost something? Let's find it.</h2>
+          <p className="mt-3 text-base max-w-[46ch] mx-auto" style={{ color: "#6B7280" }}>
             Sign in to browse verified found items or log something you picked up.
           </p>
           <button
             onClick={onGetStarted}
-            className="relative mt-8 inline-flex items-center gap-2 px-7 py-3.5 text-base font-semibold rounded-xl transition-all active:scale-[0.98]"
-            style={{ background: "#9A3F3F", color: "#FFFFFF", boxShadow: "0 4px 14px rgba(154,63,63,0.25)" }}
+            className="mt-8 inline-flex items-center gap-2 px-7 py-3.5 text-base font-semibold rounded-lg transition-all active:translate-y-px"
+            style={{ background: "#3A3A3A", color: "#FFFFFF" }}
           >
             Get started
             <IconArrowRight />
@@ -3511,7 +3489,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
         </div>
       </section>
 
-      <footer className="px-5 py-8 text-center text-xs" style={{ color: "#9A7070", borderTop: "1px solid #E6CFA9" }}>
+      <footer className="px-5 py-8 text-center text-xs" style={{ color: "#9CA3AF", borderTop: "1px solid #E5E5E5" }}>
         No public chat. No peer-to-peer contact. Every item verified by the office.
       </footer>
     </div>
